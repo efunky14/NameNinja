@@ -1,0 +1,2483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NameNinja - Master the art of remembering names and personal details">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>NameNinja - Memory Training App</title>
+    
+    <!-- PWA Support -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NameNinja">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E🥷%3C/text%3E%3C/svg%3E">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        #root {
+            width: 100%;
+            min-height: 100vh;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #4ecdc4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .install-prompt {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            display: none;
+            align-items: center;
+            gap: 15px;
+            z-index: 10000;
+            max-width: 90%;
+        }
+        
+        .install-prompt.show {
+            display: flex;
+        }
+        
+        .install-prompt button {
+            background: white;
+            color: #44a08d;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .install-prompt .close {
+            background: transparent;
+            color: white;
+            padding: 4px 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="loading">
+            <div class="spinner"></div>
+            <div style="font-size: 18px; color: rgba(255,255,255,0.8);">Loading NameNinja...</div>
+        </div>
+    </div>
+    
+    <div id="install-prompt" class="install-prompt">
+        <span>📱 Install NameNinja for offline access!</span>
+        <button id="install-button">Install</button>
+        <button class="close" id="install-dismiss">✕</button>
+    </div>
+    
+    <!-- React and Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('✅ Service Worker registered'))
+                    .catch(err => console.log('❌ Service Worker registration failed:', err));
+            });
+        }
+        
+        let deferredPrompt;
+        const installPrompt = document.getElementById('install-prompt');
+        const installButton = document.getElementById('install-button');
+        const installDismiss = document.getElementById('install-dismiss');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            if (!localStorage.getItem('installPromptDismissed')) {
+                setTimeout(() => {
+                    installPrompt.classList.add('show');
+                }, 3000);
+            }
+        });
+        
+        installButton.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`User response: ${outcome}`);
+            
+            deferredPrompt = null;
+            installPrompt.classList.remove('show');
+        });
+        
+        installDismiss.addEventListener('click', () => {
+            installPrompt.classList.remove('show');
+            localStorage.setItem('installPromptDismissed', 'true');
+        });
+    </script>
+    
+    <!-- NameNinja Component -->
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+function NameMemoryApp() {
+  const [people, setPeople] = useState([]);
+  const [view, setView] = useState('list');
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [uploadQueue, setUploadQueue] = useState([]);
+  const [currentUploadIndex, setCurrentUploadIndex] = useState(0);
+  const [crops, setCrops] = useState([]);
+  const [currentCrop, setCurrentCrop] = useState(null);
+  const [practiceIndex, setPracticeIndex] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [practiceOrder, setPracticeOrder] = useState([]);
+  const [quizResults, setQuizResults] = useState([]);
+  const [showResults, setShowResults] = useState(false);
+  const [quizFields, setQuizFields] = useState([]);
+  const [editingPerson, setEditingPerson] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showAddFieldModal, setShowAddFieldModal] = useState(false);
+  const [newFieldName, setNewFieldName] = useState('');
+  const [showAddGroupModal, setShowAddGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [editingFieldId, setEditingFieldId] = useState(null);
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  const [newNoPhotoPerson, setNewNoPhotoPerson] = useState({
+    fullName: '',
+    description: '',
+    group: 'friends',
+    selectedAvatar: ''
+  });
+  const [lastDeletedPerson, setLastDeletedPerson] = useState(null);
+  const [searchFilter, setSearchFilter] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [includeArchivedInQuiz, setIncludeArchivedInQuiz] = useState(false);
+  const [sortBy, setSortBy] = useState('nameAZ');
+  const [exclude100Percent, setExclude100Percent] = useState(false);
+  const [displayStatsField, setDisplayStatsField] = useState('fullName');
+  const [groups, setGroups] = useState([
+    { id: 'friends', name: 'Friends' },
+    { id: 'work', name: 'Work' },
+    { id: 'kids', name: 'Kids' }
+  ]);
+  const [quizGroups, setQuizGroups] = useState([]);
+  const [customFields, setCustomFields] = useState([
+    { id: 'fullName', label: 'First / Last Name', enabled: true },
+    { id: 'birthday', label: 'Birthday', enabled: true },
+    { id: 'spouse', label: 'Spouse/Partner', enabled: true },
+    { id: 'kids', label: 'Kids Names', enabled: true }
+  ]);
+
+  const canvasRef = useRef(null);
+  const imageRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const importInputRef = useRef(null);
+
+  useEffect(() => {
+    loadPeople();
+    loadCustomFields();
+    loadGroups();
+    loadQuizSettings();
+  }, []);
+
+  const loadGroups = async () => {
+    try {
+      const stored = localStorage.getItem('groups');
+      if (stored) {
+        setGroups(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.log('Using default groups');
+    }
+  };
+
+  const saveGroups = async (newGroups) => {
+    setGroups(newGroups);
+    try {
+      localStorage.setItem('groups', JSON.stringify(newGroups));
+    } catch (e) {
+      console.warn('Failed to save groups to storage:', e);
+    }
+  };
+
+  const loadCustomFields = async () => {
+    try {
+      const stored = localStorage.getItem('customFields');
+      if (stored) {
+        setCustomFields(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.log('Using default fields');
+    }
+  };
+
+  const saveCustomFields = async (fields) => {
+    setCustomFields(fields);
+    try {
+      localStorage.setItem('customFields', JSON.stringify(fields));
+    } catch (e) {
+      console.warn('Failed to save custom fields to storage:', e);
+    }
+  };
+
+  const loadQuizSettings = async () => {
+    try {
+      const stored = localStorage.getItem('quizSettings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        if (settings.includeArchivedInQuiz !== undefined) {
+          setIncludeArchivedInQuiz(settings.includeArchivedInQuiz);
+        }
+        if (settings.exclude100Percent !== undefined) {
+          setExclude100Percent(settings.exclude100Percent);
+        }
+      }
+    } catch (e) {
+      console.log('Using default quiz settings');
+    }
+  };
+
+  const saveQuizSettings = async () => {
+    const settings = {
+      includeArchivedInQuiz,
+      exclude100Percent
+    };
+    try {
+      localStorage.setItem('quizSettings', JSON.stringify(settings));
+    } catch (e) {
+      console.warn('Failed to save quiz settings to storage:', e);
+    }
+  };
+
+  const loadPeople = async () => {
+    try {
+      const loaded = [];
+      // Get all keys from localStorage that start with 'person:'
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('person:')) {
+          const data = localStorage.getItem(key);
+          if (data) loaded.push(JSON.parse(data));
+        }
+      }
+      setPeople(loaded);
+    } catch (e) {
+      console.log('No people yet');
+    }
+  };
+
+  const savePerson = async (person) => {
+    try {
+      localStorage.setItem('person:' + person.id, JSON.stringify(person));
+    } catch (e) {
+      console.warn('Failed to save person:', e);
+    }
+  };
+
+  const deletePerson = async (id) => {
+    console.log('Delete clicked for ID:', id);
+    setDeleteConfirm({ id, type: 'single' });
+  };
+
+  const removeCustomField = (id) => {
+    setDeleteConfirm({ id, type: 'field' });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    
+    try {
+      if (deleteConfirm.type === 'single') {
+        console.log('Deleting person:', deleteConfirm.id);
+        
+        // Save the person for undo functionality
+        const personToDelete = people.find(p => p.id === deleteConfirm.id);
+        if (personToDelete) {
+          setLastDeletedPerson(personToDelete);
+        }
+        
+        // Try to delete from storage, but continue even if it fails
+        try {
+          localStorage.removeItem('person:' + deleteConfirm.id);
+          console.log('Deleted from storage successfully');
+        } catch (storageError) {
+          console.warn('Storage delete failed, continuing anyway:', storageError);
+        }
+        
+        // Always update local state to remove the person
+        const newPeople = people.filter(p => p.id !== deleteConfirm.id);
+        setPeople(newPeople);
+        console.log('Deleted successfully from UI');
+      } else if (deleteConfirm.type === 'archive') {
+        console.log('Archiving person:', deleteConfirm.id);
+        const updatedPerson = { ...deleteConfirm.person, archived: true };
+        setPeople(people.map(p => p.id === deleteConfirm.id ? updatedPerson : p));
+        savePerson(updatedPerson);
+        setView('list');
+        setEditingPerson(null);
+      } else if (deleteConfirm.type === 'all') {
+        console.log('Deleting all people');
+        setLastDeletedPerson(null); // Can't undo delete all
+        for (const person of people) {
+          try {
+            localStorage.removeItem('person:' + person.id);
+          } catch (e) {
+            console.warn('Failed to delete person from storage:', person.id);
+          }
+        }
+        setPeople([]);
+        console.log('All deleted successfully');
+      } else if (deleteConfirm.type === 'field') {
+        await confirmDeleteField(deleteConfirm.id);
+      } else if (deleteConfirm.type === 'group') {
+        await confirmDeleteGroup(deleteConfirm.id);
+      } else if (deleteConfirm.type === 'resetStats') {
+        console.log('Resetting all stats');
+        const resetPeople = people.map(p => ({
+          ...p,
+          correctCount: 0,
+          wrongCount: 0,
+          totalAttempts: 0,
+          quizHistory: [],
+          fieldStats: {},
+          lastQuizDate: null
+        }));
+        setPeople(resetPeople);
+        for (const person of resetPeople) {
+          try {
+            await savePerson(person);
+          } catch (e) {
+            console.warn('Failed to save person during reset:', person.id);
+          }
+        }
+        console.log('All stats reset successfully');
+      }
+      setDeleteConfirm(null);
+    } catch (e) {
+      console.error('Error deleting:', e);
+      alert('Error deleting: ' + e.message);
+      setDeleteConfirm(null);
+    }
+  };
+
+  const deleteAllPeople = () => {
+    setDeleteConfirm({ type: 'all' });
+  };
+
+  const undoDelete = () => {
+    if (lastDeletedPerson) {
+      setPeople([...people, lastDeletedPerson]);
+      savePerson(lastDeletedPerson);
+      setLastDeletedPerson(null);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const fileArray = Array.from(files);
+    const imageUrls = [];
+    let loadedCount = 0;
+
+    fileArray.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        imageUrls.push(event.target.result);
+        loadedCount++;
+
+        if (loadedCount === fileArray.length) {
+          setUploadQueue(imageUrls);
+          setCurrentUploadIndex(0);
+          setUploadedImage(imageUrls[0]);
+          setCrops([]);
+          setView('crop');
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = '';
+  };
+
+  const nextPhoto = () => {
+    if (currentUploadIndex < uploadQueue.length - 1) {
+      const nextIndex = currentUploadIndex + 1;
+      setCurrentUploadIndex(nextIndex);
+      
+      // Reset the image to ensure it reloads with correct dimensions
+      if (imageRef.current) {
+        imageRef.current.onload = null;
+      }
+      
+      setUploadedImage(uploadQueue[nextIndex]);
+      setCurrentCrop(null);
+    }
+  };
+
+  useEffect(() => {
+    if (uploadedImage && imageRef.current && canvasRef.current && (view === 'crop' || view === 'cropReplace')) {
+      const img = imageRef.current;
+      const canvas = canvasRef.current;
+      
+      const setupCanvas = () => {
+        if (!img.naturalWidth || !img.naturalHeight) {
+          console.log('Image dimensions not ready:', img.naturalWidth, img.naturalHeight);
+          return;
+        }
+        
+        const container = canvas.parentElement;
+        const maxWidth = container.clientWidth - 30;
+        
+        console.log('Setting up canvas for image:', img.naturalWidth, 'x', img.naturalHeight);
+        
+        const scale = Math.min(maxWidth / img.naturalWidth, 1);
+        const displayWidth = img.naturalWidth * scale;
+        const displayHeight = img.naturalHeight * scale;
+        
+        // Set canvas internal dimensions to match image
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        
+        // Set canvas display dimensions
+        canvas.style.width = displayWidth + 'px';
+        canvas.style.height = displayHeight + 'px';
+        
+        console.log('Canvas set to:', canvas.width, 'x', canvas.height, 'displayed as', displayWidth, 'x', displayHeight);
+        
+        // Draw the image
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+      };
+      
+      // Clear any existing onload handler
+      img.onload = null;
+      
+      // Set up new onload handler
+      img.onload = () => {
+        console.log('Image loaded via onload');
+        setupCanvas();
+      };
+      
+      // Also try immediately if already loaded
+      if (img.complete && img.naturalWidth) {
+        console.log('Image already loaded');
+        setupCanvas();
+      }
+    }
+  }, [uploadedImage, view]);
+
+  const drawCanvas = () => {
+    const canvas = canvasRef.current;
+    const img = imageRef.current;
+    if (!canvas || !img || !img.complete) return;
+
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    if (currentCrop) {
+      const { startX, startY, endX, endY } = currentCrop;
+      ctx.strokeStyle = '#4ecdc4';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+      ctx.fillStyle = 'rgba(78, 205, 196, 0.1)';
+      ctx.fillRect(startX, startY, endX - startX, endY - startY);
+    }
+  };
+
+  useEffect(() => {
+    drawCanvas();
+  }, [currentCrop]);
+
+
+  const getCanvasCoords = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  const startCrop = (e) => {
+    const coords = getCanvasCoords(e);
+    setCurrentCrop({ startX: coords.x, startY: coords.y, endX: coords.x, endY: coords.y });
+  };
+
+  const updateCrop = (e) => {
+    if (!currentCrop) return;
+    const coords = getCanvasCoords(e);
+    setCurrentCrop({ ...currentCrop, endX: coords.x, endY: coords.y });
+  };
+
+  const endCrop = () => {
+    if (!currentCrop) return;
+    
+    const { startX, startY, endX, endY } = currentCrop;
+    const width = Math.abs(endX - startX);
+    const height = Math.abs(endY - startY);
+
+    if (width > 30 && height > 30) {
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = width;
+      cropCanvas.height = height;
+      const ctx = cropCanvas.getContext('2d');
+      
+      ctx.drawImage(
+        imageRef.current,
+        Math.min(startX, endX),
+        Math.min(startY, endY),
+        width,
+        height,
+        0, 0, width, height
+      );
+
+      const newCrop = {
+        id: Date.now() + Math.random(),
+        dataUrl: cropCanvas.toDataURL(),
+        group: groups[0].id
+      };
+      
+      customFields.forEach(field => {
+        if (field.enabled) {
+          newCrop[field.id] = '';
+        }
+      });
+
+      setCrops([...crops, newCrop]);
+    }
+    setCurrentCrop(null);
+  };
+
+  const updateCropField = (id, field, value) => {
+    setCrops(crops.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+
+  const removeCrop = (id) => {
+    setCrops(crops.filter(c => c.id !== id));
+  };
+
+  const saveCrops = async () => {
+    const valid = crops.filter(c => c.fullName && c.fullName.trim());
+    if (valid.length === 0) {
+      alert('Please add at least one full name');
+      return;
+    }
+    
+    const newPeople = [];
+    for (const crop of valid) {
+      const person = {
+        id: Date.now() + '_' + Math.random(),
+        photo: crop.dataUrl,
+        ...crop
+      };
+      delete person.dataUrl;
+      newPeople.push(person);
+      savePerson(person);
+    }
+    
+    setPeople([...people, ...newPeople]);
+    
+    // Check if there are more photos in the queue
+    if (uploadQueue.length > 0 && currentUploadIndex < uploadQueue.length - 1) {
+      setCrops([]);
+      nextPhoto();
+    } else {
+      // Done with all photos
+      setView('list');
+      setUploadedImage(null);
+      setUploadQueue([]);
+      setCurrentUploadIndex(0);
+      setCrops([]);
+    }
+  };
+
+  const startEdit = (person) => {
+    setEditingPerson({ ...person });
+    setView('edit');
+  };
+
+  const saveEdit = async () => {
+    if (!editingPerson.fullName || !editingPerson.fullName.trim()) {
+      alert('Full name is required');
+      return;
+    }
+    
+    setPeople(people.map(p => p.id === editingPerson.id ? editingPerson : p));
+    setView('list');
+    setEditingPerson(null);
+    savePerson(editingPerson);
+  };
+
+  const updateEditField = (field, value) => {
+    setEditingPerson({ ...editingPerson, [field]: value });
+  };
+
+  const getAvatarSVG = (avatarType) => {
+    const avatars = {
+      'adult-male': `data:image/png;base64,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`,
+      'adult-female': `data:image/png;base64,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`,
+      'child-boy': `data:image/png;base64,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`,
+      'child-girl': `data:image/png;base64,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`
+    };
+    return avatars[avatarType] || avatars['adult-male'];
+  };;
+
+  const saveNoPhotoPerson = async () => {
+    if (!newNoPhotoPerson.fullName || !newNoPhotoPerson.fullName.trim()) {
+      alert('Full name is required');
+      return;
+    }
+    
+    if (!newNoPhotoPerson.selectedAvatar || newNoPhotoPerson.selectedAvatar === '') {
+      alert('Please choose an avatar before saving');
+      return;
+    }
+    
+    // Create avatar based on selection
+    const genericAvatar = getAvatarSVG(newNoPhotoPerson.selectedAvatar);
+    
+    const person = {
+      id: Date.now() + '_' + Math.random(),
+      photo: genericAvatar,
+      fullName: newNoPhotoPerson.fullName,
+      description: newNoPhotoPerson.description,
+      group: newNoPhotoPerson.group,
+      isNoPhoto: true,
+      avatarType: newNoPhotoPerson.selectedAvatar
+    };
+    
+    // Add other enabled fields
+    customFields.forEach(field => {
+      if (field.enabled && !person[field.id]) {
+        person[field.id] = '';
+      }
+    });
+    
+    setPeople([...people, person]);
+    savePerson(person);
+    
+    setNewNoPhotoPerson({ fullName: '', description: '', group: groups[0]?.id || 'friends', selectedAvatar: '' });
+    setView('list');
+  };
+
+
+  const startPractice = () => {
+    const enabledFields = customFields.filter(f => f.enabled);
+    // Only select fullName by default (single field selection for quiz)
+    setQuizFields(enabledFields.map(f => ({ ...f, selected: f.id === 'fullName' })));
+    setQuizGroups(groups.map(g => ({ ...g, selected: true })));
+    setView('quizSetup');
+  };
+
+  const toggleQuizGroup = (id) => {
+    setQuizGroups(quizGroups.map(g => g.id === id ? { ...g, selected: !g.selected } : g));
+  };
+
+  useEffect(() => {
+    if (view === 'quizSetup') {
+      setQuizGroups(groups.map(g => {
+        const existing = quizGroups.find(qg => qg.id === g.id);
+        return { ...g, selected: existing ? existing.selected : true };
+      }));
+    }
+  }, [view, groups]);
+
+  useEffect(() => {
+    saveQuizSettings();
+  }, [includeArchivedInQuiz, exclude100Percent]);
+
+  const selectAllQuizGroups = () => {
+    setQuizGroups(quizGroups.map(g => ({ ...g, selected: true })));
+  };
+
+  const clearAllQuizGroups = () => {
+    setQuizGroups(quizGroups.map(g => ({ ...g, selected: false })));
+  };
+
+  const toggleQuizField = (id) => {
+    // Only allow one field to be selected at a time (radio button behavior)
+    setQuizFields(quizFields.map(f => ({ ...f, selected: f.id === id })));
+  };
+
+  const startQuiz = () => {
+    const selectedGroups = quizGroups.filter(g => g.selected).map(g => g.id);
+    const selectedField = quizFields.find(f => f.selected);
+    const selectedFieldId = selectedField ? selectedField.id : 'fullName';
+    
+    const filteredPeople = people.filter(p => {
+      const inSelectedGroup = selectedGroups.includes(p.group);
+      const includeThisPerson = includeArchivedInQuiz || !p.archived;
+      
+      // Only include people who have a value for the selected field
+      const hasFieldValue = p[selectedFieldId] && p[selectedFieldId].toString().trim() !== '';
+      
+      // Exclude people above 90% for THIS FIELD if option is enabled (must have at least 5 correct answers for this field)
+      if (exclude100Percent) {
+        const fieldStats = p.fieldStats && p.fieldStats[selectedFieldId];
+        if (fieldStats && fieldStats.totalAttempts > 0 && fieldStats.correctCount >= 5) {
+          const percentage = (fieldStats.correctCount / fieldStats.totalAttempts) * 100;
+          if (percentage > 90) {
+            return false; // Exclude this person
+          }
+        }
+      }
+      
+      return inSelectedGroup && includeThisPerson && hasFieldValue;
+    });
+    const shuffled = [...filteredPeople].sort(() => Math.random() - 0.5);
+    setPracticeOrder(shuffled);
+    setPracticeIndex(0);
+    setShowAnswer(false);
+    setQuizResults([]);
+    setShowResults(false);
+    setView('practice');
+  };
+
+  const recordAnswer = (correct) => {
+    const person = practiceOrder[practiceIndex];
+    const selectedField = quizFields.find(f => f.selected);
+    const fieldId = selectedField ? selectedField.id : 'fullName';
+    
+    const result = {
+      personId: person.id,
+      personName: person.fullName,
+      correct: correct,
+      fieldId: fieldId,
+      timestamp: new Date().toISOString()
+    };
+    
+    const newResults = [...quizResults, result];
+    setQuizResults(newResults);
+    
+    console.log('=== RECORDING QUIZ ANSWER ===');
+    console.log('Person:', person.fullName, 'ID:', person.id);
+    console.log('Field tested:', fieldId);
+    console.log('Answer was:', correct ? 'CORRECT' : 'WRONG');
+    
+    // Update local state immediately (don't wait for storage)
+    setPeople(prevPeople => prevPeople.map(p => {
+      if (p.id === person.id) {
+        // Initialize fieldStats if it doesn't exist
+        const fieldStats = p.fieldStats || {};
+        const currentFieldStats = fieldStats[fieldId] || { correctCount: 0, totalAttempts: 0 };
+        
+        const updatedPerson = {
+          ...p,
+          quizHistory: [...(p.quizHistory || []), result],
+          fieldStats: {
+            ...fieldStats,
+            [fieldId]: {
+              correctCount: currentFieldStats.correctCount + (correct ? 1 : 0),
+              totalAttempts: currentFieldStats.totalAttempts + 1,
+              lastQuizDate: new Date().toISOString()
+            }
+          },
+          // Keep legacy stats for backward compatibility
+          correctCount: (p.correctCount || 0) + (correct ? 1 : 0),
+          totalAttempts: (p.totalAttempts || 0) + 1,
+          lastQuizDate: new Date().toISOString()
+        };
+        
+        console.log('Updated stats for', p.fullName, fieldId, ':', {
+          correctCount: updatedPerson.fieldStats[fieldId].correctCount,
+          totalAttempts: updatedPerson.fieldStats[fieldId].totalAttempts,
+          percentage: Math.round((updatedPerson.fieldStats[fieldId].correctCount / updatedPerson.fieldStats[fieldId].totalAttempts) * 100) + '%'
+        });
+        
+        return updatedPerson;
+      }
+      return p;
+    }));
+    
+    // Try to save to storage in background
+    (async () => {
+      try {
+        console.log('Attempting to load existing stats for person:', person.id);
+        const stored = localStorage.getItem('person:' + person.id);
+        if (stored) {
+          const personData = JSON.parse(stored);
+          
+          // Initialize fieldStats if it doesn't exist
+          personData.fieldStats = personData.fieldStats || {};
+          const currentFieldStats = personData.fieldStats[fieldId] || { correctCount: 0, totalAttempts: 0 };
+          
+          console.log('Current stats before update:', {
+            field: fieldId,
+            correctCount: currentFieldStats.correctCount,
+            totalAttempts: currentFieldStats.totalAttempts
+          });
+          
+          personData.quizHistory = personData.quizHistory || [];
+          personData.quizHistory.push(result);
+          
+          // Update field-specific stats
+          personData.fieldStats[fieldId] = {
+            correctCount: currentFieldStats.correctCount + (correct ? 1 : 0),
+            totalAttempts: currentFieldStats.totalAttempts + 1,
+            lastQuizDate: new Date().toISOString()
+          };
+          
+          // Update legacy stats for backward compatibility
+          personData.correctCount = (personData.correctCount || 0) + (correct ? 1 : 0);
+          personData.totalAttempts = (personData.totalAttempts || 0) + 1;
+          personData.lastQuizDate = new Date().toISOString();
+          
+          console.log('New stats after update:', {
+            field: fieldId,
+            correctCount: personData.fieldStats[fieldId].correctCount,
+            totalAttempts: personData.fieldStats[fieldId].totalAttempts,
+            percentage: Math.round((personData.fieldStats[fieldId].correctCount / personData.fieldStats[fieldId].totalAttempts) * 100) + '%'
+          });
+          
+          localStorage.setItem('person:' + person.id, JSON.stringify(personData));
+          console.log('✅ Stats saved successfully to storage');
+        }
+      } catch (e) {
+        console.warn('⚠️ Storage failed:', e.message);
+      }
+    })();
+
+    // Move to next immediately
+    if (practiceIndex < practiceOrder.length - 1) {
+      setPracticeIndex(practiceIndex + 1);
+      setShowAnswer(false);
+    } else {
+      setShowResults(true);
+    }
+  };
+
+  const nextPractice = () => {
+    if (practiceIndex < practiceOrder.length - 1) {
+      setPracticeIndex(practiceIndex + 1);
+      setShowAnswer(false);
+    } else {
+      setView('list');
+    }
+  };
+
+  const exportBackup = () => {
+    const backup = {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      people: people,
+      customFields: customFields
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'name-memory-backup-' + new Date().toISOString().split('T')[0] + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    alert('Backup exported successfully!');
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      if (!backup.people) throw new Error('Invalid backup');
+      if (confirm('Import ' + backup.people.length + ' people? This will replace your data.')) {
+        for (const p of people) {
+          localStorage.removeItem('person:' + p.id);
+        }
+        for (const p of backup.people) {
+          await savePerson(p);
+        }
+        if (backup.customFields) {
+          await saveCustomFields(backup.customFields);
+        }
+        await loadPeople();
+        alert('Backup imported!');
+      }
+    } catch (err) {
+      alert('Error importing: ' + err.message);
+    }
+    e.target.value = '';
+  };
+
+  const addCustomField = () => {
+    setNewFieldName('');
+    setEditingFieldId(null);
+    setShowAddFieldModal(true);
+  };
+
+  const editField = (field) => {
+    setNewFieldName(field.label);
+    setEditingFieldId(field.id);
+    setShowAddFieldModal(true);
+  };
+
+  const confirmAddField = () => {
+    if (newFieldName && newFieldName.trim()) {
+      if (editingFieldId) {
+        const newFields = customFields.map(f => 
+          f.id === editingFieldId ? { ...f, label: newFieldName.trim() } : f
+        );
+        setCustomFields(newFields);
+        saveCustomFields(newFields);
+      } else {
+        const id = 'custom_' + Date.now();
+        const newFields = [...customFields, { id, label: newFieldName.trim(), enabled: true }];
+        setCustomFields(newFields);
+        saveCustomFields(newFields);
+      }
+      setShowAddFieldModal(false);
+      setNewFieldName('');
+      setEditingFieldId(null);
+    }
+  };
+
+  const toggleField = (id) => {
+    const newFields = customFields.map(f => 
+      f.id === id ? { ...f, enabled: !f.enabled } : f
+    );
+    setCustomFields(newFields);
+    saveCustomFields(newFields);
+  };
+
+  const resetToDefaultFields = () => {
+    const resetFields = customFields.map(f => ({
+      ...f,
+      enabled: f.id === 'fullName'
+    }));
+    setCustomFields(resetFields);
+    saveCustomFields(resetFields);
+  };
+
+  const addCustomGroup = () => {
+    setNewGroupName('');
+    setEditingGroupId(null);
+    setShowAddGroupModal(true);
+  };
+
+  const editGroup = (group) => {
+    setNewGroupName(group.name);
+    setEditingGroupId(group.id);
+    setShowAddGroupModal(true);
+  };
+
+  const confirmAddGroup = () => {
+    if (newGroupName && newGroupName.trim()) {
+      if (editingGroupId) {
+        const newGroups = groups.map(g => 
+          g.id === editingGroupId ? { ...g, name: newGroupName.trim() } : g
+        );
+        setGroups(newGroups);
+        saveGroups(newGroups);
+      } else {
+        const id = 'group_' + Date.now();
+        const newGroups = [...groups, { id, name: newGroupName.trim() }];
+        setGroups(newGroups);
+        saveGroups(newGroups);
+      }
+      setShowAddGroupModal(false);
+      setNewGroupName('');
+      setEditingGroupId(null);
+    }
+  };
+
+  const removeGroup = (id) => {
+    setDeleteConfirm({ id, type: 'group' });
+  };
+
+  const confirmDeleteGroup = async (id) => {
+    const newGroups = groups.filter(g => g.id !== id);
+    await saveGroups(newGroups);
+  };
+
+  const confirmDeleteField = async (id) => {
+    const newFields = customFields.filter(f => f.id !== id);
+    await saveCustomFields(newFields);
+  };
+
+  const styles = {
+    container: {
+      background: 'linear-gradient(135deg, #0f0f1e 0%, #0d1428 100%)',
+      minHeight: '100vh',
+      color: 'white',
+      padding: '20px'
+    },
+    maxWidth: { maxWidth: '1200px', margin: '0 auto' },
+    header: {
+      background: 'linear-gradient(135deg, #2c3e50 0%, #1a1a2e 100%)',
+      padding: '12px 20px',
+      marginBottom: '20px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      position: 'relative',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+    },
+    title: {
+      fontSize: '32px',
+      background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+      margin: 0
+    },
+    settingsBtn: {
+      background: 'rgba(255,255,255,0.1)',
+      border: 'none',
+      color: 'white',
+      padding: '8px',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px'
+    },
+    btnGroup: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: '15px',
+      marginBottom: '20px'
+    },
+    btn: {
+      padding: '18px',
+      background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
+      border: 'none',
+      borderRadius: '15px',
+      color: 'white',
+      fontSize: '16px',
+      fontWeight: 600,
+      cursor: 'pointer'
+    },
+    btnSecondary: {
+      padding: '18px',
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      borderRadius: '15px',
+      color: 'white',
+      fontSize: '16px',
+      fontWeight: 600,
+      cursor: 'pointer'
+    },
+    card: {
+      background: 'rgba(255,255,255,0.05)',
+      borderRadius: '20px',
+      padding: '25px'
+    },
+    grid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+      gap: '15px'
+    },
+    personCard: {
+      background: 'rgba(255,255,255,0.05)',
+      borderRadius: '15px',
+      overflow: 'hidden'
+    },
+    canvas: {
+      maxWidth: '100%',
+      cursor: 'crosshair',
+      borderRadius: '10px',
+      touchAction: 'none'
+    },
+    cropItem: {
+      background: 'rgba(255,255,255,0.05)',
+      borderRadius: '15px',
+      padding: '15px',
+      marginBottom: '15px',
+      display: 'flex',
+      gap: '15px'
+    },
+    input: {
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      padding: '12px',
+      borderRadius: '10px',
+      color: 'rgba(255,255,255,0.6)',
+      width: '100%',
+      marginBottom: '8px'
+    },
+    inputName: {
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      padding: '12px',
+      borderRadius: '10px',
+      color: 'white',
+      width: '100%',
+      marginBottom: '8px',
+      fontWeight: 'bold'
+    },
+    select: {
+      background: 'rgba(255,255,255,0.1)',
+      border: '1px solid rgba(255,255,255,0.2)',
+      padding: '12px',
+      borderRadius: '10px',
+      color: 'white',
+      width: '100%',
+      marginBottom: '8px',
+      cursor: 'pointer'
+    }
+  };
+
+  return (
+    <>
+      <style>{`
+        .inputNameWhitePlaceholder::placeholder {
+          color: white !important;
+          opacity: 1;
+        }
+        .inputNameWhitePlaceholder::-webkit-input-placeholder {
+          color: white !important;
+          opacity: 1;
+        }
+        .inputNameWhitePlaceholder::-moz-placeholder {
+          color: white !important;
+          opacity: 1;
+        }
+      `}</style>
+      <div style={styles.container}>
+      <div style={styles.maxWidth}>
+        <div style={styles.header}>
+          {/* Center - Logo and Title */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px', flex: 1 }}>
+            <svg 
+              width="72" 
+              height="72" 
+              viewBox="0 0 100 100" 
+              style={{ 
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
+              }}
+            >
+              {/* Ninja head */}
+              <circle cx="50" cy="50" r="35" fill="#2c3e50"/>
+              
+              {/* Face mask */}
+              <rect x="20" y="35" width="60" height="30" fill="#1a1a2e" rx="3"/>
+              
+              {/* Eyes - glowing effect */}
+              <ellipse cx="38" cy="48" rx="6" ry="8" fill="#4ecdc4" opacity="0.9"/>
+              <ellipse cx="62" cy="48" rx="6" ry="8" fill="#4ecdc4" opacity="0.9"/>
+              
+              {/* Eye highlights */}
+              <ellipse cx="40" cy="46" rx="2" ry="3" fill="#ffffff" opacity="0.8"/>
+              <ellipse cx="64" cy="46" rx="2" ry="3" fill="#ffffff" opacity="0.8"/>
+              
+              {/* Headband */}
+              <rect x="15" y="22" width="70" height="12" fill="#4ecdc4" rx="2"/>
+              <rect x="78" y="18" width="15" height="6" fill="#4ecdc4" rx="1" transform="rotate(25 85 21)"/>
+              <rect x="78" y="28" width="15" height="6" fill="#44a08d" rx="1" transform="rotate(15 85 31)"/>
+              
+              {/* Headband knot detail */}
+              <circle cx="83" cy="28" r="4" fill="#3ba89a"/>
+            </svg>
+            <div>
+              <h1 style={{ 
+                fontSize: '48px', 
+                fontWeight: 'bold', 
+                margin: 0,
+                background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                letterSpacing: '-1px'
+              }}>
+                NameNinja
+              </h1>
+            </div>
+          </div>
+
+          {/* Right side - Action Icons */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'absolute', right: '20px' }}>
+            <button 
+              onClick={() => setShowBackupModal(true)} 
+              style={{ ...styles.settingsBtn, width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Backup"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+              </svg>
+            </button>
+            <button 
+              onClick={() => setView('settings')} 
+              style={{ ...styles.settingsBtn, width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Settings"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {view === 'list' && (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <p style={{ 
+                color: 'rgba(255,255,255,0.8)', 
+                fontSize: '18px',
+                margin: '0 0 15px 0',
+                fontWeight: '600',
+                letterSpacing: '0.5px'
+              }}>
+                Upload • Practice • Remember
+              </p>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+              <button onClick={startPractice} disabled={people.filter(p => !p.archived).length === 0} style={{ ...styles.btn, opacity: people.filter(p => !p.archived).length === 0 ? 0.5 : 1, maxWidth: '480px', width: '100%' }}>
+                Take Memory Quiz
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', justifyContent: 'center', alignItems: 'center' }}>
+              <button onClick={() => fileInputRef.current?.click()} style={{ ...styles.btnSecondary, padding: '18px 30px', whiteSpace: 'nowrap' }}>
+                Add People
+              </button>
+              <button onClick={() => setView('addNoPhoto')} style={{ ...styles.btnSecondary, padding: '18px 30px', whiteSpace: 'nowrap' }}>
+                Add People - No Photo
+              </button>
+              <button onClick={() => cameraInputRef.current?.click()} style={{ ...styles.btn, width: '60px', padding: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Take Photo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                  <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+              </button>
+            </div>
+
+            <div class="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h2 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>Saved People</h2>
+                {lastDeletedPerson && (
+                  <button onClick={undoDelete} style={{ padding: '8px 16px', background: 'rgba(78,205,196,0.2)', border: '1px solid rgba(78,205,196,0.3)', color: '#4ecdc4', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                    ↺ Undo Delete
+                  </button>
+                )}
+              </div>
+              
+              {people.length > 0 && (
+                <>
+                  <div style={{ marginBottom: '10px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="🔍 Search by name..."
+                      value={searchFilter}
+                      onChange={(e) => setSearchFilter(e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: '12px 15px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '10px',
+                        color: 'white',
+                        fontSize: '15px',
+                        outline: 'none'
+                      }}
+                    />
+                    <button
+                      onClick={() => setShowArchived(!showArchived)}
+                      style={{
+                        padding: '12px 20px',
+                        background: showArchived ? 'rgba(78,205,196,0.2)' : 'rgba(255,255,255,0.1)',
+                        border: '1px solid ' + (showArchived ? 'rgba(78,205,196,0.3)' : 'rgba(255,255,255,0.2)'),
+                        borderRadius: '10px',
+                        color: showArchived ? '#4ecdc4' : 'white',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {showArchived ? 'Show Active' : 'Show Archived'}
+                    </button>
+                  </div>
+                  
+                  <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
+                      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', paddingLeft: '5px', whiteSpace: 'nowrap' }}>Sort by</label>
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                        style={{
+                          padding: '12px 15px',
+                          background: 'rgba(255,255,255,0.1)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '10px',
+                          color: 'white',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          width: '100%'
+                        }}
+                      >
+                        <option value="nameAZ" style={{ background: '#1a1a2e', color: 'white' }}>Name (A-Z)</option>
+                        <option value="dateAdded" style={{ background: '#1a1a2e', color: 'white' }}>Date Added</option>
+                        <option value="performance" style={{ background: '#1a1a2e', color: 'white' }}>Quiz Performance</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
+                      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', paddingLeft: '5px', whiteSpace: 'nowrap' }}>Stats for</label>
+                      <select
+                        value={displayStatsField}
+                        onChange={(e) => setDisplayStatsField(e.target.value)}
+                        style={{
+                          padding: '12px 15px',
+                          background: 'rgba(255,255,255,0.1)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '10px',
+                          color: 'white',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          width: '100%'
+                        }}
+                      >
+                        {customFields.filter(f => f.enabled).map(field => (
+                          <option key={field.id} value={field.id} style={{ background: '#1a1a2e', color: 'white' }}>
+                            {field.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              {people.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px 40px' }}>
+                  <svg width="160" height="120" viewBox="0 0 160 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ margin: '0 auto 30px', opacity: 0.5 }}>
+                    <circle cx="40" cy="35" r="18" fill="rgba(78,205,196,0.6)"/>
+                    <path d="M15 80 Q40 65 65 80 L65 110 L15 110 Z" fill="rgba(78,205,196,0.6)"/>
+                    <circle cx="80" cy="30" r="22" fill="rgba(78,205,196,0.8)"/>
+                    <path d="M50 85 Q80 67 110 85 L110 110 L50 110 Z" fill="rgba(78,205,196,0.8)"/>
+                    <circle cx="120" cy="35" r="18" fill="rgba(78,205,196,0.6)"/>
+                    <path d="M95 80 Q120 65 145 80 L145 110 L95 110 Z" fill="rgba(78,205,196,0.6)"/>
+                  </svg>
+                  <h3 style={{ fontSize: '22px', color: 'rgba(255,255,255,0.8)', marginBottom: '10px' }}>No People Yet!</h3>
+                  <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '16px', maxWidth: '400px', margin: '0 auto' }}>
+                    Start building your memory by adding people. Upload photos or add people without photos to get started!
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {groups.map(group => {
+                    const groupPeople = people
+                      .filter(p => p.group === group.id)
+                      .filter(p => showArchived ? p.archived : !p.archived)
+                      .filter(p => {
+                        if (!searchFilter.trim()) return true;
+                        return (p.fullName || '').toLowerCase().includes(searchFilter.toLowerCase());
+                      })
+                      .sort((a, b) => {
+                        if (sortBy === 'nameAZ') {
+                          return (a.fullName || '').localeCompare(b.fullName || '');
+                        } else if (sortBy === 'performance') {
+                          const aPerf = a.totalAttempts > 0 ? (a.correctCount / a.totalAttempts) : 999;
+                          const bPerf = b.totalAttempts > 0 ? (b.correctCount / b.totalAttempts) : 999;
+                          return aPerf - bPerf; // Lower performance first
+                        } else { // dateAdded
+                          return (b.id || '').localeCompare(a.id || ''); // Newer first (assuming IDs are timestamps)
+                        }
+                      });
+                    
+                    if (groupPeople.length === 0) return null;
+                    
+                    return (
+                      <div key={group.id} style={{ marginBottom: '30px' }}>
+                        <h3 style={{ fontSize: '18px', color: '#4ecdc4', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          {group.name}
+                          <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', fontWeight: 'normal' }}>({groupPeople.length})</span>
+                        </h3>
+                        <div style={styles.grid}>
+                          {groupPeople.map(person => {
+                            // Get stats for the selected field
+                            const fieldStats = person.fieldStats && person.fieldStats[displayStatsField];
+                            const fieldCorrect = fieldStats ? fieldStats.correctCount : 0;
+                            const fieldTotal = fieldStats ? fieldStats.totalAttempts : 0;
+                            
+                            console.log('Person card:', person.fullName, {
+                              field: displayStatsField,
+                              correctCount: fieldCorrect,
+                              totalAttempts: fieldTotal,
+                              hasStats: fieldTotal > 0
+                            });
+                            
+                            const percentage = fieldTotal > 0 
+                              ? Math.round((fieldCorrect / fieldTotal) * 100)
+                              : null;
+                            
+                            if (percentage !== null) {
+                              console.log('Showing percentage for', person.fullName, displayStatsField, ':', percentage + '%');
+                            } else {
+                              console.log('No percentage for', person.fullName, displayStatsField, '- no quiz attempts yet');
+                            }
+                            
+                            return (
+                              <div key={person.id} style={styles.personCard}>
+                                <img src={person.photo} style={{ width: '100%', height: '150px', objectFit: 'cover' }} alt={person.fullName} />
+                                <div style={{ padding: '12px' }}>
+                                  <div style={{ fontWeight: 600, marginBottom: '8px' }}>{person.fullName}</div>
+                                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                    {percentage !== null && (
+                                      <div style={{ flex: 1, background: 'rgba(255,255,255,0.1)', color: percentage >= 80 ? '#4ecdc4' : percentage >= 50 ? '#ffd700' : '#ff6b6b', padding: '6px', borderRadius: '8px', textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>
+                                        {percentage}%
+                                      </div>
+                                    )}
+                                    <button onClick={() => startEdit(person)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '6px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', height: '32px' }} title="Edit">
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                      </svg>
+                                    </button>
+                                    <button onClick={(e) => { e.stopPropagation(); deletePerson(person.id); }} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#ff6b6b', padding: '6px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', height: '32px' }} title="Delete">
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </>
+        )}
+
+        {view === 'crop' && (
+          <div style={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2>Crop Faces</h2>
+              <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '15px', padding: '15px', marginBottom: '20px', maxHeight: '70vh', overflow: 'auto' }}>
+              <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '10px' }}>
+                Click and drag to select faces. You can crop multiple people from the same photo.
+              </p>
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <img ref={imageRef} src={uploadedImage} key={uploadedImage} style={{ display: 'none' }} alt="Upload" />
+                <canvas
+                  ref={canvasRef}
+                  onMouseDown={startCrop}
+                  onMouseMove={updateCrop}
+                  onMouseUp={endCrop}
+                  onTouchStart={(e) => { e.preventDefault(); startCrop(e.touches[0]); }}
+                  onTouchMove={(e) => { e.preventDefault(); updateCrop(e.touches[0]); }}
+                  onTouchEnd={(e) => { e.preventDefault(); endCrop(); }}
+                  style={{ ...styles.canvas, width: '100%', height: 'auto' }}
+                />
+              </div>
+            </div>
+
+            {crops.map(crop => (
+              <div key={crop.id} style={{ ...styles.cropItem, maxWidth: '600px', margin: '0 auto 15px' }}>
+                <img src={crop.dataUrl} style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '10px' }} alt="Crop" />
+                <div style={{ flex: 1, maxWidth: '350px', margin: '0 auto' }}>
+                  {customFields.filter(f => f.enabled && f.id === 'fullName').map(field => (
+                    <input
+                      key={field.id}
+                      type="text"
+                      placeholder={field.label + ' *'}
+                      value={crop[field.id] || ''}
+                      onChange={(e) => updateCropField(crop.id, field.id, e.target.value)}
+                      style={{ ...styles.inputName }}
+                      className="inputNameWhitePlaceholder"
+                    />
+                  ))}
+                  <label style={{ display: 'block', fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '5px' }}>Group</label>
+                  <select
+                    value={crop.group}
+                    onChange={(e) => updateCropField(crop.id, 'group', e.target.value)}
+                    style={styles.select}
+                  >
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id} style={{ background: '#fff', color: '#000' }}>{g.name}</option>
+                    ))}
+                  </select>
+                  {customFields.filter(f => f.enabled && f.id !== 'fullName').map(field => {
+                    if (field.id === 'birthday') {
+                      return (
+                        <input
+                          key={field.id}
+                          type="date"
+                          value={crop[field.id] || ''}
+                          onChange={(e) => updateCropField(crop.id, field.id, e.target.value)}
+                          style={styles.input}
+                        />
+                      );
+                    } else {
+                      const displayValue = crop[field.id] 
+                        ? `${field.label}: ${crop[field.id]}`
+                        : '';
+                      return (
+                        <input
+                          key={field.id}
+                          type="text"
+                          placeholder={field.label}
+                          value={displayValue}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            const prefix = field.label + ': ';
+                            if (value.startsWith(prefix)) {
+                              updateCropField(crop.id, field.id, value.substring(prefix.length));
+                            } else if (value === '') {
+                              updateCropField(crop.id, field.id, '');
+                            } else {
+                              updateCropField(crop.id, field.id, value);
+                            }
+                          }}
+                          style={styles.input}
+                        />
+                      );
+                    }
+                  })}
+                </div>
+                <button onClick={() => removeCrop(crop.id)} style={{ background: 'rgba(255,107,107,0.2)', border: 'none', color: '#ff6b6b', padding: '10px', borderRadius: '10px', cursor: 'pointer', alignSelf: 'flex-start' }}>
+                  Remove
+                </button>
+              </div>
+            ))}
+
+            <div style={{ textAlign: 'center' }}>
+              <button onClick={saveCrops} disabled={crops.length === 0} style={{ ...styles.btn, padding: '18px 40px', width: 'auto', opacity: crops.length === 0 ? 0.5 : 1 }}>
+                {uploadQueue.length > 0 && currentUploadIndex < uploadQueue.length - 1 ? 'Next Photo' : 'Save New People'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === 'cropReplace' && editingPerson && (
+          <div style={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2>Crop New Photo</h2>
+              <button onClick={() => { setView('edit'); setUploadedImage(null); setCrops([]); }} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '15px', padding: '15px', marginBottom: '20px', maxHeight: '70vh', overflow: 'auto' }}>
+              <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '10px' }}>
+                Click and drag to select the face for {editingPerson.fullName || 'this person'}.
+              </p>
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <img ref={imageRef} src={uploadedImage} key={uploadedImage} style={{ display: 'none' }} alt="Upload" />
+                <canvas
+                  ref={canvasRef}
+                  onMouseDown={startCrop}
+                  onMouseMove={updateCrop}
+                  onMouseUp={endCrop}
+                  onTouchStart={(e) => { e.preventDefault(); startCrop(e.touches[0]); }}
+                  onTouchMove={(e) => { e.preventDefault(); updateCrop(e.touches[0]); }}
+                  onTouchEnd={(e) => { e.preventDefault(); endCrop(); }}
+                  style={{ ...styles.canvas, width: '100%', height: 'auto' }}
+                />
+              </div>
+            </div>
+
+            {crops.length > 0 && (
+              <div style={{ ...styles.cropItem, maxWidth: '600px', margin: '0 auto 15px' }}>
+                <img src={crops[0].dataUrl} style={{ width: '150px', height: '150px', objectFit: 'cover', borderRadius: '10px' }} alt="Crop Preview" />
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.7)' }}>
+                  This will replace {editingPerson.fullName || 'this person'}'s photo
+                </div>
+              </div>
+            )}
+
+            <div style={{ textAlign: 'center', display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <button 
+                onClick={() => { setView('edit'); setUploadedImage(null); setCrops([]); }} 
+                style={{ ...styles.btnSecondary, padding: '18px 40px', width: 'auto' }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  if (crops.length > 0) {
+                    setEditingPerson({ ...editingPerson, photo: crops[0].dataUrl, isNoPhoto: false });
+                    setView('edit');
+                    setUploadedImage(null);
+                    setCrops([]);
+                  }
+                }} 
+                disabled={crops.length === 0} 
+                style={{ ...styles.btn, padding: '18px 40px', width: 'auto', opacity: crops.length === 0 ? 0.5 : 1 }}
+              >
+                Use This Photo
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === 'edit' && editingPerson && (
+          <div style={{ ...styles.card, maxWidth: '450px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ flex: 1, textAlign: 'center', marginRight: '-40px', fontSize: '28px', fontWeight: 'bold' }}>Edit Details</h2>
+              <button onClick={() => { setView('list'); setEditingPerson(null); }} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '5px' }}>Group</label>
+              <select
+                value={editingPerson.group}
+                onChange={(e) => updateEditField('group', e.target.value)}
+                style={styles.select}
+              >
+                {groups.map(g => (
+                  <option key={g.id} value={g.id} style={{ background: '#fff', color: '#000' }}>{g.name}</option>
+                ))}
+              </select>
+              <div style={{ position: 'relative', width: '225px', margin: '20px auto' }}>
+                <img src={editingPerson.photo} style={{ width: '225px', height: '225px', objectFit: 'cover', borderRadius: '15px', display: 'block' }} alt={editingPerson.fullName} />
+                <button 
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.onchange = (e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          // Go to crop view with the new image
+                          setUploadedImage(event.target.result);
+                          setView('cropReplace');
+                          setCrops([]);
+                          setCurrentCrop(null);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    };
+                    input.click();
+                  }}
+                  style={{ 
+                    position: 'absolute', 
+                    bottom: '10px', 
+                    right: '10px',
+                    background: 'rgba(0,0,0,0.7)', 
+                    color: 'white', 
+                    border: 'none', 
+                    padding: '10px', 
+                    borderRadius: '50%', 
+                    cursor: 'pointer',
+                    width: '40px',
+                    height: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  title={editingPerson.isNoPhoto ? 'Add Photo' : 'Replace Photo'}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                </button>
+              </div>
+              
+              {customFields.filter(f => f.enabled).map(field => {
+                if (field.id === 'fullName') {
+                  return (
+                    <input
+                      key={field.id}
+                      type="text"
+                      placeholder={field.label + ' *'}
+                      value={editingPerson[field.id] || ''}
+                      onChange={(e) => updateEditField(field.id, e.target.value)}
+                      style={styles.inputName}
+                      className="inputNameWhitePlaceholder"
+                    />
+                  );
+                } else if (field.id === 'birthday') {
+                  return (
+                    <input
+                      key={field.id}
+                      type="date"
+                      value={editingPerson[field.id] || ''}
+                      onChange={(e) => updateEditField(field.id, e.target.value)}
+                      style={styles.input}
+                    />
+                  );
+                } else {
+                  const displayValue = editingPerson[field.id] 
+                    ? `${field.label}: ${editingPerson[field.id]}`
+                    : '';
+                  return (
+                    <input
+                      key={field.id}
+                      type="text"
+                      placeholder={field.label}
+                      value={displayValue}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const prefix = field.label + ': ';
+                        if (value.startsWith(prefix)) {
+                          updateEditField(field.id, value.substring(prefix.length));
+                        } else if (value === '') {
+                          updateEditField(field.id, '');
+                        } else {
+                          updateEditField(field.id, value);
+                        }
+                      }}
+                      style={styles.input}
+                    />
+                  );
+                }
+              })}
+              
+              {editingPerson.isNoPhoto && (
+                <>
+                  <label style={{ display: 'block', fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '5px', marginTop: '10px' }}>Description</label>
+                  <textarea
+                    placeholder="Add a description to help you remember this person"
+                    value={editingPerson.description || ''}
+                    onChange={(e) => updateEditField('description', e.target.value)}
+                    style={{
+                      ...styles.input,
+                      minHeight: '80px',
+                      resize: 'vertical',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                </>
+              )}
+              
+              <button onClick={saveEdit} style={{ ...styles.btn, width: '100%', marginBottom: '20px' }}>
+                Save Changes
+              </button>
+              
+              {/* Display per-field quiz stats */}
+              {editingPerson.fieldStats && Object.keys(editingPerson.fieldStats).length > 0 && (
+                <div style={{ marginBottom: '20px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
+                  <h4 style={{ fontSize: '16px', marginBottom: '12px', color: 'rgba(255,255,255,0.9)' }}>Quiz Statistics by Detail</h4>
+                  {customFields.filter(f => f.enabled && editingPerson.fieldStats[f.id]).map(field => {
+                    const stats = editingPerson.fieldStats[field.id];
+                    const percentage = stats.totalAttempts > 0 
+                      ? Math.round((stats.correctCount / stats.totalAttempts) * 100)
+                      : 0;
+                    const color = percentage >= 80 ? '#4ecdc4' : percentage >= 50 ? '#ffd700' : '#ff6b6b';
+                    
+                    return (
+                      <div key={field.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)' }}>{field.label}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>
+                            {stats.correctCount}/{stats.totalAttempts}
+                          </span>
+                          <span style={{ 
+                            fontSize: '14px', 
+                            fontWeight: 600, 
+                            color: color,
+                            minWidth: '45px',
+                            textAlign: 'right'
+                          }}>
+                            {percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              
+              <button 
+                onClick={() => {
+                  // If archiving (not unarchiving), show confirmation
+                  if (!editingPerson.archived) {
+                    setDeleteConfirm({ 
+                      id: editingPerson.id, 
+                      type: 'archive',
+                      person: editingPerson
+                    });
+                  } else {
+                    // Unarchiving - no confirmation needed
+                    setEditingPerson({ ...editingPerson, archived: !editingPerson.archived });
+                    const updatedPerson = { ...editingPerson, archived: !editingPerson.archived };
+                    setPeople(people.map(p => p.id === editingPerson.id ? updatedPerson : p));
+                    savePerson(updatedPerson);
+                    setView('list');
+                    setEditingPerson(null);
+                  }
+                }}
+                style={{ 
+                  ...styles.btnSecondary, 
+                  width: '100%',
+                  background: editingPerson.archived ? 'rgba(78,205,196,0.2)' : 'rgba(255,255,255,0.1)',
+                  border: '1px solid ' + (editingPerson.archived ? 'rgba(78,205,196,0.3)' : 'rgba(255,255,255,0.2)'),
+                  color: editingPerson.archived ? '#4ecdc4' : 'white'
+                }}
+              >
+                {editingPerson.archived ? 'Unarchive Person' : 'Send to Archive'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === 'addNoPhoto' && (
+          <div style={{ ...styles.card, maxWidth: '450px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ flex: 1, textAlign: 'center', marginRight: '-40px', fontSize: '28px', fontWeight: '700' }}>Add Person - No Photo</h2>
+              <button onClick={() => { setView('list'); setNewNoPhotoPerson({ fullName: '', description: '', group: groups[0]?.id || 'friends', selectedAvatar: '' }); }} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '5px' }}>Group</label>
+              <select
+                value={newNoPhotoPerson.group}
+                onChange={(e) => setNewNoPhotoPerson({ ...newNoPhotoPerson, group: e.target.value })}
+                style={styles.select}
+              >
+                {groups.map(g => (
+                  <option key={g.id} value={g.id} style={{ background: '#fff', color: '#000' }}>{g.name}</option>
+                ))}
+              </select>
+              {/* Avatar Selection */}
+              <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '10px', textAlign: 'center' }}>Choose Avatar</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', maxWidth: '400px', margin: '0 auto' }}>
+                  {/* Adult Male */}
+                  <div 
+                    onClick={() => setNewNoPhotoPerson({ ...newNoPhotoPerson, selectedAvatar: 'adult-male' })}
+                    style={{ 
+                      cursor: 'pointer',
+                      border: newNoPhotoPerson.selectedAvatar === 'adult-male' ? '3px solid #4ecdc4' : '3px solid transparent',
+                      borderRadius: '15px',
+                      padding: '5px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ width: '100%', aspectRatio: '1', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <img src={getAvatarSVG('adult-male')} alt="Adult Male" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <p style={{ textAlign: 'center', fontSize: '12px', marginTop: '8px', color: 'rgba(255,255,255,0.8)' }}>Adult Male</p>
+                  </div>
+
+                  {/* Adult Female */}
+                  <div 
+                    onClick={() => setNewNoPhotoPerson({ ...newNoPhotoPerson, selectedAvatar: 'adult-female' })}
+                    style={{ 
+                      cursor: 'pointer',
+                      border: newNoPhotoPerson.selectedAvatar === 'adult-female' ? '3px solid #4ecdc4' : '3px solid transparent',
+                      borderRadius: '15px',
+                      padding: '5px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ width: '100%', aspectRatio: '1', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <img src={getAvatarSVG('adult-female')} alt="Adult Female" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <p style={{ textAlign: 'center', fontSize: '12px', marginTop: '8px', color: 'rgba(255,255,255,0.8)' }}>Adult Female</p>
+                  </div>
+
+                  {/* Child Boy */}
+                  <div 
+                    onClick={() => setNewNoPhotoPerson({ ...newNoPhotoPerson, selectedAvatar: 'child-boy' })}
+                    style={{ 
+                      cursor: 'pointer',
+                      border: newNoPhotoPerson.selectedAvatar === 'child-boy' ? '3px solid #4ecdc4' : '3px solid transparent',
+                      borderRadius: '15px',
+                      padding: '5px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ width: '100%', aspectRatio: '1', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <img src={getAvatarSVG('child-boy')} alt="Child Boy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <p style={{ textAlign: 'center', fontSize: '12px', marginTop: '8px', color: 'rgba(255,255,255,0.8)' }}>Child Boy</p>
+                  </div>
+
+                  {/* Child Girl */}
+                  <div 
+                    onClick={() => setNewNoPhotoPerson({ ...newNoPhotoPerson, selectedAvatar: 'child-girl' })}
+                    style={{ 
+                      cursor: 'pointer',
+                      border: newNoPhotoPerson.selectedAvatar === 'child-girl' ? '3px solid #4ecdc4' : '3px solid transparent',
+                      borderRadius: '15px',
+                      padding: '5px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ width: '100%', aspectRatio: '1', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <img src={getAvatarSVG('child-girl')} alt="Child Girl" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <p style={{ textAlign: 'center', fontSize: '12px', marginTop: '8px', color: 'rgba(255,255,255,0.8)' }}>Child Girl</p>
+                  </div>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                placeholder="First / Last Name *"
+                value={newNoPhotoPerson.fullName}
+                onChange={(e) => setNewNoPhotoPerson({ ...newNoPhotoPerson, fullName: e.target.value })}
+                style={styles.inputName}
+                className="inputNameWhitePlaceholder"
+              />
+
+              <label style={{ display: 'block', fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '5px', marginTop: '10px' }}>Description</label>
+              <textarea
+                placeholder="Add a description to help you remember this person (e.g., 'Neighbor three houses down with the dog')"
+                value={newNoPhotoPerson.description}
+                onChange={(e) => setNewNoPhotoPerson({ ...newNoPhotoPerson, description: e.target.value })}
+                style={{
+                  ...styles.input,
+                  minHeight: '80px',
+                  resize: 'vertical',
+                  fontFamily: 'inherit'
+                }}
+              />
+
+              <button onClick={saveNoPhotoPerson} style={{ ...styles.btn, width: '100%', marginTop: '10px' }}>
+                Save Person
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === 'settings' && (
+          <div style={{ ...styles.card, maxWidth: '600px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '28px', fontWeight: '700' }}>Settings</h2>
+              <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '30px' }}>Groups</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
+              Organize people into groups for better management and targeted quizzes.
+            </p>
+
+            {groups.map(group => (
+              <div key={group.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '10px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '16px' }}>{group.name}</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => editGroup(group)} style={{ background: 'rgba(78,205,196,0.2)', border: 'none', color: '#4ecdc4', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    Edit
+                  </button>
+                  {group.id.startsWith('group_') && (
+                    <button onClick={() => removeGroup(group.id)} style={{ background: 'rgba(255,107,107,0.2)', border: 'none', color: '#ff6b6b', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '20px', marginBottom: '30px' }}>
+              <button onClick={addCustomGroup} style={styles.btnSecondary}>
+                Add Custom Group
+              </button>
+              <button onClick={() => setView('list')} style={styles.btn}>
+                Save Changes
+              </button>
+            </div>
+
+            <h3 style={{ fontSize: '20px', marginBottom: '15px' }}>Custom Fields</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '20px', fontSize: '14px' }}>
+              Enable or disable fields that appear when adding people.
+            </p>
+
+            {customFields.map(field => (
+              <div key={field.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '10px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: field.id === 'fullName' ? 'not-allowed' : 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={field.enabled}
+                      onChange={() => toggleField(field.id)}
+                      disabled={field.id === 'fullName'}
+                      style={{ marginRight: '10px', width: '18px', height: '18px', cursor: field.id === 'fullName' ? 'not-allowed' : 'pointer' }}
+                    />
+                    <span style={{ fontSize: '15px' }}>{field.label}</span>
+                    {field.id === 'fullName' && <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginLeft: '8px' }}>(Required)</span>}
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => editField(field)} style={{ background: 'rgba(78,205,196,0.2)', border: 'none', color: '#4ecdc4', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    Edit
+                  </button>
+                  {field.id.startsWith('custom_') && (
+                    <button onClick={() => removeCustomField(field.id)} style={{ background: 'rgba(255,107,107,0.2)', border: 'none', color: '#ff6b6b', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '20px' }}>
+              <button onClick={addCustomField} style={styles.btnSecondary}>
+                Add Custom Field
+              </button>
+              <button onClick={() => setView('list')} style={styles.btn}>
+                Save Changes
+              </button>
+            </div>
+
+            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '30px' }}>Data Storage</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
+              Manage your saved data. These actions cannot be undone.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <button 
+                onClick={() => setDeleteConfirm({ type: 'resetStats' })}
+                style={{ 
+                  ...styles.btnSecondary,
+                  background: 'rgba(255,165,0,0.2)',
+                  border: '1px solid rgba(255,165,0,0.3)',
+                  color: '#ffa500'
+                }}
+              >
+                Reset All Stats
+              </button>
+              <button 
+                onClick={deleteAllPeople}
+                style={{ 
+                  ...styles.btnSecondary,
+                  background: 'rgba(255,107,107,0.2)',
+                  border: '1px solid rgba(255,107,107,0.3)',
+                  color: '#ff6b6b'
+                }}
+              >
+                Delete All People
+              </button>
+            </div>
+          </div>
+        )}
+
+        {view === 'quizSetup' && (
+          <div style={{ ...styles.card, maxWidth: '360px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '28px', fontWeight: '700' }}>Quiz Settings</h2>
+              <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <button 
+              onClick={startQuiz} 
+              disabled={!quizFields.some(f => f.selected) || !quizGroups.some(g => g.selected)}
+              style={{ ...styles.btn, width: '100%', marginBottom: '20px', opacity: (quizFields.some(f => f.selected) && quizGroups.some(g => g.selected)) ? 1 : 0.5 }}>
+              Take Memory Quiz
+            </button>
+
+            <h3 style={{ fontSize: '18px', marginBottom: '10px' }}>Select Detail to Test</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '13px' }}>
+              Choose which detail you want to be tested on. Stats will be tracked separately for each detail.
+            </p>
+
+            {quizFields.map(field => {
+              // Count how many people have a value for this field
+              const fieldCount = people.filter(p => {
+                const inSelectedGroup = quizGroups.find(g => g.id === p.group && g.selected);
+                const includeThisPerson = includeArchivedInQuiz || !p.archived;
+                const hasFieldValue = p[field.id] && p[field.id].toString().trim() !== '';
+                return inSelectedGroup && includeThisPerson && hasFieldValue;
+              }).length;
+              
+              return (
+                <div key={field.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '10px', marginBottom: '6px', display: 'flex', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flex: 1 }}>
+                    <input
+                      type="radio"
+                      name="quizField"
+                      checked={field.selected}
+                      onChange={() => toggleQuizField(field.id)}
+                      style={{ marginRight: '10px', width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '14px' }}>{field.label} ({fieldCount})</span>
+                  </label>
+                </div>
+              );
+            })}
+
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '10px', marginBottom: '20px', marginTop: '15px', display: 'flex', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flex: 1 }}>
+                <input
+                  type="checkbox"
+                  checked={exclude100Percent}
+                  onChange={() => setExclude100Percent(!exclude100Percent)}
+                  style={{ marginRight: '10px', width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)' }}>
+                  Exclude People Above 90% ({people.filter(p => {
+                    const selectedFieldId = quizFields.find(f => f.selected)?.id;
+                    if (!selectedFieldId) return false;
+                    const fieldStats = p.fieldStats && p.fieldStats[selectedFieldId];
+                    return fieldStats && fieldStats.totalAttempts > 0 && fieldStats.correctCount >= 5 && (fieldStats.correctCount / fieldStats.totalAttempts) * 100 > 90;
+                  }).length})
+                </span>
+              </label>
+            </div>
+
+            <h3 style={{ fontSize: '18px', marginBottom: '10px' }}>Select Groups</h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '13px' }}>
+              Choose which groups to include in the quiz.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+              <button onClick={selectAllQuizGroups} style={{ ...styles.btnSecondary, padding: '8px', fontSize: '13px' }}>
+                Select All
+              </button>
+              <button onClick={clearAllQuizGroups} style={{ ...styles.btnSecondary, padding: '8px', fontSize: '13px' }}>
+                Clear All
+              </button>
+            </div>
+
+            {quizGroups.map(group => {
+              const groupCount = people.filter(p => {
+                const inGroup = p.group === group.id;
+                const includeThisPerson = includeArchivedInQuiz || !p.archived;
+                return inGroup && includeThisPerson;
+              }).length;
+              return (
+                <div key={group.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '10px', marginBottom: '6px', display: 'flex', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flex: 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={group.selected}
+                      onChange={() => toggleQuizGroup(group.id)}
+                      style={{ marginRight: '10px', width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '14px' }}>{group.name} {`(${groupCount})`}</span>
+                  </label>
+                </div>
+              );
+            })}
+
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '10px', marginBottom: '6px', marginTop: '10px', display: 'flex', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flex: 1 }}>
+                <input
+                  type="checkbox"
+                  checked={includeArchivedInQuiz}
+                  onChange={() => setIncludeArchivedInQuiz(!includeArchivedInQuiz)}
+                  style={{ marginRight: '10px', width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)' }}>
+                  Include Archived People ({people.filter(p => p.archived).length})
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {view === 'practice' && practiceOrder.length > 0 && !showResults && (
+          <div style={{ ...styles.card, maxWidth: '550px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0 }}>Practice Session ({practiceIndex + 1}/{practiceOrder.length})</h2>
+              <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div>
+              {!showAnswer ? (
+                <button onClick={() => setShowAnswer(true)} style={{ ...styles.btn, width: '100%', marginBottom: '15px' }}>
+                  Show Name
+                </button>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+                  <button onClick={() => recordAnswer(false)} style={{ ...styles.btn, background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)' }}>
+                    Wrong
+                  </button>
+                  <button onClick={() => recordAnswer(true)} style={{ ...styles.btn, background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' }}>
+                    Correct
+                  </button>
+                </div>
+              )}
+
+              {practiceOrder[practiceIndex].isNoPhoto ? (
+                <div style={{ width: '100%', marginBottom: showAnswer ? '10px' : '20px' }}>
+                  <div style={{ width: '100%', height: '300px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '15px', overflow: 'hidden' }}>
+                    <img src={practiceOrder[practiceIndex].photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                  {practiceOrder[practiceIndex].description && (
+                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '20px', borderRadius: '15px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '18px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+                        {practiceOrder[practiceIndex].description}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', height: '400px', objectFit: 'cover', borderRadius: '20px', marginBottom: showAnswer ? '10px' : '20px' }} alt="Person" />
+              )}
+
+              {showAnswer && (
+                <div style={{ background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)', padding: '15px', borderRadius: '15px', textAlign: 'center' }}>
+                  <h3 style={{ fontSize: '28px', marginBottom: '12px' }}>{practiceOrder[practiceIndex].fullName}</h3>
+                  {quizFields.filter(f => f.selected && f.id !== 'fullName').map(field => {
+                    const fieldValue = practiceOrder[practiceIndex][field.id];
+                    if (!fieldValue) return null;
+                    
+                    let displayValue = fieldValue;
+                    if (field.id === 'birthday' && displayValue) {
+                      const date = new Date(displayValue + 'T00:00:00');
+                      displayValue = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                    }
+                    return (
+                      <p key={field.id} style={{ fontSize: '28px', marginTop: '8px', fontWeight: 600 }}>
+                        {displayValue}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {view === 'practice' && showResults && (
+          <div style={{ ...styles.card, maxWidth: '360px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '28px', fontWeight: '700' }}>Quiz Results</h2>
+              <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+              <div style={{ fontSize: '64px', marginBottom: '10px' }}>
+                {Math.round((quizResults.filter(r => r.correct).length / quizResults.length) * 100)}%
+              </div>
+              <p style={{ fontSize: '18px', color: 'rgba(255,255,255,0.7)' }}>
+                {quizResults.filter(r => r.correct).length} correct out of {quizResults.length}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '20px', marginBottom: '15px', color: '#4ecdc4' }}>
+                Correct ({quizResults.filter(r => r.correct).length})
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {quizResults.filter(r => r.correct).map((result, idx) => (
+                  <div key={idx} style={{ background: 'rgba(78,205,196,0.1)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(78,205,196,0.3)' }}>
+                    {result.personName}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ fontSize: '20px', marginBottom: '15px', color: '#ff6b6b' }}>
+                Need Practice ({quizResults.filter(r => !r.correct).length})
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {quizResults.filter(r => !r.correct).map((result, idx) => (
+                  <div key={idx} style={{ background: 'rgba(255,107,107,0.1)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,107,107,0.3)' }}>
+                    {result.personName}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button onClick={() => {
+                const allPeople = quizResults.map(r => 
+                  people.find(p => p.id === r.personId)
+                ).filter(p => p);
+                setPracticeOrder(allPeople.sort(() => Math.random() - 0.5));
+                setPracticeIndex(0);
+                setShowAnswer(false);
+                setQuizResults([]);
+                setShowResults(false);
+              }} style={styles.btnSecondary}>
+                Retake All
+              </button>
+              <button onClick={() => {
+                const wrongPeople = quizResults.filter(r => !r.correct).map(r => 
+                  people.find(p => p.id === r.personId)
+                ).filter(p => p);
+                if (wrongPeople.length > 0) {
+                  setPracticeOrder(wrongPeople.sort(() => Math.random() - 0.5));
+                  setPracticeIndex(0);
+                  setShowAnswer(false);
+                  setQuizResults([]);
+                  setShowResults(false);
+                } else {
+                  alert('Great job! You got everyone correct!');
+                }
+              }} style={styles.btnSecondary} disabled={quizResults.filter(r => !r.correct).length === 0}>
+                Retake Wrong Only
+              </button>
+              <button onClick={() => setView('list')} style={styles.btn}>
+                Finished
+              </button>
+            </div>
+          </div>
+        )}
+
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
+        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
+        <input ref={importInputRef} type="file" accept=".json" onChange={handleImport} style={{ display: 'none' }} />
+
+        {showBackupModal && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>Backup & Restore</h3>
+              <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '20px', fontSize: '14px' }}>
+                Export your data to keep a backup, or import a previously saved backup file.
+              </p>
+              <div style={{ display: 'grid', gap: '15px' }}>
+                <button onClick={() => { exportBackup(); setShowBackupModal(false); }} style={{ ...styles.btn, width: '100%' }}>
+                  Export Backup
+                </button>
+                <button onClick={() => { importInputRef.current?.click(); setShowBackupModal(false); }} style={{ ...styles.btn, width: '100%' }}>
+                  Import Backup
+                </button>
+                <button onClick={() => setShowBackupModal(false)} style={{ padding: '12px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {deleteConfirm && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', border: '2px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>
+                {deleteConfirm.type === 'single' ? 'Delete this person?' : 
+                 deleteConfirm.type === 'all' ? 'Delete ALL people?' :
+                 deleteConfirm.type === 'archive' ? 'Send to Archive?' :
+                 deleteConfirm.type === 'group' ? 'Remove this group?' :
+                 deleteConfirm.type === 'resetStats' ? 'Reset all statistics?' :
+                 'Remove this field?'}
+              </h3>
+              <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '20px' }}>
+                {deleteConfirm.type === 'single' 
+                  ? 'This action cannot be undone.' 
+                  : deleteConfirm.type === 'all'
+                  ? 'This will delete all ' + people.length + ' people. This action cannot be undone!'
+                  : deleteConfirm.type === 'archive'
+                  ? 'This person will be moved to the archived list and will not be included in the memory quiz (unless you enable "Include Archived People" in quiz settings).'
+                  : deleteConfirm.type === 'group'
+                  ? 'People in this group will not be deleted, but the group label will be removed.'
+                  : deleteConfirm.type === 'resetStats'
+                  ? 'This will reset all quiz statistics (correct/wrong counts and percentages) for all ' + people.length + ' people. Your people and their details will remain. This action cannot be undone!'
+                  : 'This field will be removed from all people.'}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <button onClick={() => setDeleteConfirm(null)} style={{ padding: '12px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px' }}>
+                  Cancel
+                </button>
+                <button onClick={confirmDelete} style={{ padding: '12px', background: deleteConfirm.type === 'resetStats' ? 'linear-gradient(135deg, #ffa500 0%, #ff8c00 100%)' : deleteConfirm.type === 'archive' ? 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' : 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px', fontWeight: 600 }}>
+                  {deleteConfirm.type === 'resetStats' ? 'Reset Stats' : deleteConfirm.type === 'archive' ? 'Archive' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAddFieldModal && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>{editingFieldId ? 'Edit Field' : 'Add Custom Field'}</h3>
+              <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
+                {editingFieldId ? 'Change the name of this field.' : 'Enter a name for your custom field (e.g., "Favorite Food", "Hometown", "Hobbies")'}
+              </p>
+              <input
+                type="text"
+                value={newFieldName}
+                onChange={(e) => setNewFieldName(e.target.value)}
+                onKeyPress={(e) => { if (e.key === 'Enter') confirmAddField(); }}
+                placeholder="Field name..."
+                autoFocus
+                style={{ ...styles.input, marginBottom: '20px' }}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <button onClick={() => { setShowAddFieldModal(false); setNewFieldName(''); setEditingFieldId(null); }} style={{ padding: '12px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px' }}>
+                  Cancel
+                </button>
+                <button onClick={confirmAddField} disabled={!newFieldName.trim()} style={{ padding: '12px', background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px', fontWeight: 600, opacity: newFieldName.trim() ? 1 : 0.5 }}>
+                  {editingFieldId ? 'Save' : 'Add Field'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showAddGroupModal && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>{editingGroupId ? 'Edit Group' : 'Add Custom Group'}</h3>
+              <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
+                {editingGroupId ? 'Change the name of this group.' : 'Enter a name for your custom group (e.g., "Family", "Networking Event", "Gym")'}
+              </p>
+              <input
+                type="text"
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyPress={(e) => { if (e.key === 'Enter') confirmAddGroup(); }}
+                placeholder="Group name..."
+                autoFocus
+                style={{ ...styles.input, marginBottom: '20px' }}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <button onClick={() => { setShowAddGroupModal(false); setNewGroupName(''); setEditingGroupId(null); }} style={{ padding: '12px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px' }}>
+                  Cancel
+                </button>
+                <button onClick={confirmAddGroup} disabled={!newGroupName.trim()} style={{ padding: '12px', background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px', fontWeight: 600, opacity: newGroupName.trim() ? 1 : 0.5 }}>
+                  {editingGroupId ? 'Save' : 'Add Group'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+    </>
+  );
+}        
+        // Render App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<NameMemoryApp />);
+    </script>
+</body>
+</html>
