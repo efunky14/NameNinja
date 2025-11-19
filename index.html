@@ -5,15 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="NameNinja - Master the art of remembering names and personal details">
     <meta name="theme-color" content="#1a1a2e">
-    <title>NameNinja - Memory Training App</title>
+    <title>NameNinja - Memory Training App (Test Version)</title>
     
-    <!-- PWA Support -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="NameNinja">
-    
-    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E🥷%3C/text%3E%3C/svg%3E">
     
     <style>
@@ -58,44 +51,6 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-        
-        .install-prompt {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
-            color: white;
-            padding: 15px 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            display: none;
-            align-items: center;
-            gap: 15px;
-            z-index: 10000;
-            max-width: 90%;
-        }
-        
-        .install-prompt.show {
-            display: flex;
-        }
-        
-        .install-prompt button {
-            background: white;
-            color: #44a08d;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        
-        .install-prompt .close {
-            background: transparent;
-            color: white;
-            padding: 4px 8px;
-        }
     </style>
 </head>
 <body>
@@ -106,63 +61,15 @@
         </div>
     </div>
     
-    <div id="install-prompt" class="install-prompt">
-        <span>📱 Install NameNinja for offline access!</span>
-        <button id="install-button">Install</button>
-        <button class="close" id="install-dismiss">✕</button>
-    </div>
-    
     <!-- React and Babel -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Service Worker Registration -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js')
-                    .then(reg => console.log('✅ Service Worker registered'))
-                    .catch(err => console.log('❌ Service Worker registration failed:', err));
-            });
-        }
-        
-        let deferredPrompt;
-        const installPrompt = document.getElementById('install-prompt');
-        const installButton = document.getElementById('install-button');
-        const installDismiss = document.getElementById('install-dismiss');
-        
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-            
-            if (!localStorage.getItem('installPromptDismissed')) {
-                setTimeout(() => {
-                    installPrompt.classList.add('show');
-                }, 3000);
-            }
-        });
-        
-        installButton.addEventListener('click', async () => {
-            if (!deferredPrompt) return;
-            
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            console.log(`User response: ${outcome}`);
-            
-            deferredPrompt = null;
-            installPrompt.classList.remove('show');
-        });
-        
-        installDismiss.addEventListener('click', () => {
-            installPrompt.classList.remove('show');
-            localStorage.setItem('installPromptDismissed', 'true');
-        });
-    </script>
-    
     <!-- NameNinja Component -->
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
+
 
 function NameMemoryApp() {
   const [people, setPeople] = useState([]);
@@ -212,6 +119,11 @@ function NameMemoryApp() {
     { id: 'spouse', label: 'Spouse/Partner', enabled: true },
     { id: 'kids', label: 'Kids Names', enabled: true }
   ]);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [imageScale, setImageScale] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+  const [isPinching, setIsPinching] = useState(false);
+  const [lastPinchDistance, setLastPinchDistance] = useState(0);
 
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
@@ -514,7 +426,37 @@ function NameMemoryApp() {
     }
   }, [uploadedImage, view]);
 
-  const drawCanvas = () => {
+  const getPinchDistance = (touches) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handlePinchStart = (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      setIsPinching(true);
+      setLastPinchDistance(getPinchDistance(e.touches));
+    }
+  };
+
+  const handlePinchMove = (e) => {
+    if (e.touches.length === 2 && isPinching) {
+      e.preventDefault();
+      const currentDistance = getPinchDistance(e.touches);
+      const scaleDelta = currentDistance / lastPinchDistance;
+      setImageScale(prev => Math.max(0.5, Math.min(3, prev * scaleDelta)));
+      setLastPinchDistance(currentDistance);
+    }
+  };
+
+  const handlePinchEnd = (e) => {
+    if (e.touches.length < 2) {
+      setIsPinching(false);
+    }
+  };
+
+  const drawCanvas = ()=> {
     const canvas = canvasRef.current;
     const img = imageRef.current;
     if (!canvas || !img || !img.complete) return;
@@ -528,11 +470,28 @@ function NameMemoryApp() {
 
     if (currentCrop) {
       const { startX, startY, endX, endY } = currentCrop;
+      const x = Math.min(startX, endX);
+      const y = Math.min(startY, endY);
+      const w = Math.abs(endX - startX);
+      const h = Math.abs(endY - startY);
+      
+      // Darken everything except the crop area
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Clear the crop area to show original image
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+      ctx.fillRect(x, y, w, h);
+      
+      // Draw the crop area normally
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(img, x, y, w, h, x, y, w, h);
+      
+      // Draw border around crop
       ctx.strokeStyle = '#4ecdc4';
       ctx.lineWidth = 3;
-      ctx.strokeRect(startX, startY, endX - startX, endY - startY);
-      ctx.fillStyle = 'rgba(78, 205, 196, 0.1)';
-      ctx.fillRect(startX, startY, endX - startX, endY - startY);
+      ctx.strokeRect(x, y, w, h);
     }
   };
 
@@ -1054,18 +1013,23 @@ function NameMemoryApp() {
       background: 'linear-gradient(135deg, #0f0f1e 0%, #0d1428 100%)',
       minHeight: '100vh',
       color: 'white',
-      padding: '20px'
+      padding: '0',
+      paddingBottom: '90px'
     },
-    maxWidth: { maxWidth: '1200px', margin: '0 auto' },
+    maxWidth: { maxWidth: '1200px', margin: '0 auto', padding: '0 20px' },
     header: {
-      background: 'linear-gradient(135deg, #2c3e50 0%, #1a1a2e 100%)',
-      padding: '12px 20px',
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #2c3e50 100%)',
+      padding: '8px 0',
       marginBottom: '20px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
       position: 'relative',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+      borderBottom: '1px solid rgba(255,255,255,0.1)',
+      marginLeft: '-20px',
+      marginRight: '-20px',
+      paddingLeft: '20px',
+      paddingRight: '20px'
     },
     title: {
       fontSize: '32px',
@@ -1166,6 +1130,83 @@ function NameMemoryApp() {
       width: '100%',
       marginBottom: '8px',
       cursor: 'pointer'
+    },
+    bottomNav: {
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: '70px',
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #2c3e50 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-around',
+      boxShadow: '0 -2px 10px rgba(0,0,0,0.3)',
+      zIndex: 1000,
+      paddingBottom: 'env(safe-area-inset-bottom)'
+    },
+    navButton: {
+      background: 'none',
+      border: 'none',
+      color: 'rgba(255,255,255,0.7)',
+      cursor: 'pointer',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '8px 20px',
+      fontSize: '11px',
+      fontWeight: '600',
+      transition: 'color 0.2s'
+    },
+    navButtonActive: {
+      color: '#4ecdc4'
+    },
+    addButton: {
+      width: '56px',
+      height: '56px',
+      borderRadius: '50%',
+      background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
+      border: 'none',
+      color: 'white',
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow: '0 4px 12px rgba(78,205,196,0.4)',
+      marginTop: '-28px',
+      transition: 'transform 0.2s'
+    },
+    addMenu: {
+      position: 'fixed',
+      bottom: '85px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #2c3e50 100%)',
+      borderRadius: '15px',
+      padding: '10px',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+      zIndex: 999,
+      minWidth: '200px'
+    },
+    addMenuItem: {
+      background: 'rgba(255,255,255,0.05)',
+      border: 'none',
+      color: 'white',
+      padding: '14px 20px',
+      borderRadius: '10px',
+      cursor: 'pointer',
+      width: '100%',
+      textAlign: 'left',
+      fontSize: '15px',
+      fontWeight: '600',
+      marginBottom: '8px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px'
+    },
+    bottomSpacer: {
+      height: '90px'
     }
   };
 
@@ -1189,10 +1230,10 @@ function NameMemoryApp() {
       <div style={styles.maxWidth}>
         <div style={styles.header}>
           {/* Center - Logo and Title */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px', flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flex: 1 }}>
             <svg 
-              width="72" 
-              height="72" 
+              width="48" 
+              height="48" 
               viewBox="0 0 100 100" 
               style={{ 
                 filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
@@ -1222,7 +1263,7 @@ function NameMemoryApp() {
             </svg>
             <div>
               <h1 style={{ 
-                fontSize: '48px', 
+                fontSize: '32px', 
                 fontWeight: 'bold', 
                 margin: 0,
                 background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
@@ -1236,28 +1277,8 @@ function NameMemoryApp() {
             </div>
           </div>
 
-          {/* Right side - Action Icons */}
+          {/* Right side - Empty for cleaner look */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'absolute', right: '20px' }}>
-            <button 
-              onClick={() => setShowBackupModal(true)} 
-              style={{ ...styles.settingsBtn, width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              title="Backup"
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-            </button>
-            <button 
-              onClick={() => setView('settings')} 
-              style={{ ...styles.settingsBtn, width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              title="Settings"
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -1276,23 +1297,8 @@ function NameMemoryApp() {
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-              <button onClick={startPractice} disabled={people.filter(p => !p.archived).length === 0} style={{ ...styles.btn, opacity: people.filter(p => !p.archived).length === 0 ? 0.5 : 1, maxWidth: '480px', width: '100%' }}>
+              <button onClick={startPractice} disabled={people.filter(p => !p.archived).length === 0} style={{ ...styles.btn, opacity: people.filter(p => !p.archived).length === 0 ? 0.5 : 1, width: 'auto', padding: '18px 40px' }}>
                 Take Memory Quiz
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', justifyContent: 'center', alignItems: 'center' }}>
-              <button onClick={() => fileInputRef.current?.click()} style={{ ...styles.btnSecondary, padding: '18px 30px', whiteSpace: 'nowrap' }}>
-                Add People
-              </button>
-              <button onClick={() => setView('addNoPhoto')} style={{ ...styles.btnSecondary, padding: '18px 30px', whiteSpace: 'nowrap' }}>
-                Add People - No Photo
-              </button>
-              <button onClick={() => cameraInputRef.current?.click()} style={{ ...styles.btn, width: '60px', padding: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Take Photo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                  <circle cx="12" cy="13" r="4"></circle>
-                </svg>
               </button>
             </div>
 
@@ -1518,10 +1524,30 @@ function NameMemoryApp() {
                   onMouseDown={startCrop}
                   onMouseMove={updateCrop}
                   onMouseUp={endCrop}
-                  onTouchStart={(e) => { e.preventDefault(); startCrop(e.touches[0]); }}
-                  onTouchMove={(e) => { e.preventDefault(); updateCrop(e.touches[0]); }}
-                  onTouchEnd={(e) => { e.preventDefault(); endCrop(); }}
-                  style={{ ...styles.canvas, width: '100%', height: 'auto' }}
+                  onTouchStart={(e) => {
+                    if (e.touches.length === 2) {
+                      handlePinchStart(e);
+                    } else {
+                      e.preventDefault();
+                      startCrop(e.touches[0]);
+                    }
+                  }}
+                  onTouchMove={(e) => {
+                    if (e.touches.length === 2) {
+                      handlePinchMove(e);
+                    } else if (!isPinching) {
+                      e.preventDefault();
+                      updateCrop(e.touches[0]);
+                    }
+                  }}
+                  onTouchEnd={(e) => {
+                    handlePinchEnd(e);
+                    if (e.touches.length === 0 && !isPinching) {
+                      e.preventDefault();
+                      endCrop();
+                    }
+                  }}
+                  style={{ ...styles.canvas, width: '100%', height: 'auto', transform: `scale(${imageScale})`, transformOrigin: 'center', transition: isPinching ? 'none' : 'transform 0.1s' }}
                 />
               </div>
             </div>
@@ -1990,12 +2016,12 @@ function NameMemoryApp() {
 
         {view === 'settings' && (
           <div style={{ ...styles.card, maxWidth: '600px', margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', paddingTop: '5px' }}>
               <h2 style={{ fontSize: '28px', fontWeight: '700' }}>Settings</h2>
               <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
             </div>
 
-            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '30px' }}>Groups</h3>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px', marginTop: '15px' }}>Groups</h3>
             <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
               Organize people into groups for better management and targeted quizzes.
             </p>
@@ -2018,14 +2044,14 @@ function NameMemoryApp() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '20px', marginBottom: '30px' }}>
               <button onClick={addCustomGroup} style={styles.btnSecondary}>
-                Add Custom Group
+                Add Group
               </button>
               <button onClick={() => setView('list')} style={styles.btn}>
                 Save Changes
               </button>
             </div>
 
-            <h3 style={{ fontSize: '20px', marginBottom: '15px' }}>Custom Fields</h3>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px' }}>Custom Fields</h3>
             <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '20px', fontSize: '14px' }}>
               Enable or disable fields that appear when adding people.
             </p>
@@ -2060,17 +2086,32 @@ function NameMemoryApp() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '20px' }}>
               <button onClick={addCustomField} style={styles.btnSecondary}>
-                Add Custom Field
+                Add Field
               </button>
               <button onClick={() => setView('list')} style={styles.btn}>
                 Save Changes
               </button>
             </div>
 
-            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '30px' }}>Data Storage</h3>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px', marginTop: '30px' }}>Data Storage</h3>
             <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
               Manage your saved data. These actions cannot be undone.
             </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+              <button 
+                onClick={exportBackup}
+                style={styles.btnSecondary}
+              >
+                Export Backup
+              </button>
+              <button 
+                onClick={() => importInputRef.current?.click()}
+                style={styles.btnSecondary}
+              >
+                Import Backup
+              </button>
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
               <button 
@@ -2216,28 +2257,40 @@ function NameMemoryApp() {
         {view === 'practice' && practiceOrder.length > 0 && !showResults && (
           <div style={{ ...styles.card, maxWidth: '550px', margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0 }}>Practice Session ({practiceIndex + 1}/{practiceOrder.length})</h2>
+              <h2 style={{ margin: 0 }}>Quiz Session ({practiceIndex + 1}/{practiceOrder.length})</h2>
               <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
             </div>
 
             <div>
-              {!showAnswer ? (
-                <button onClick={() => setShowAnswer(true)} style={{ ...styles.btn, width: '100%', marginBottom: '15px' }}>
-                  Show Name
-                </button>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-                  <button onClick={() => recordAnswer(false)} style={{ ...styles.btn, background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)' }}>
-                    Wrong
-                  </button>
-                  <button onClick={() => recordAnswer(true)} style={{ ...styles.btn, background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' }}>
-                    Correct
-                  </button>
-                </div>
-              )}
+              {/* Answer display area - shows ??? or name */}
+              <div style={{ background: showAnswer ? 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' : 'rgba(78,205,196,0.3)', padding: '20px', borderRadius: '15px', textAlign: 'center', marginBottom: '20px', minHeight: '140px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                {!showAnswer ? (
+                  <h3 style={{ fontSize: '48px', margin: 0, fontWeight: 'bold' }}>???</h3>
+                ) : (
+                  <>
+                    <h3 style={{ fontSize: '28px', margin: '0', marginBottom: quizFields.filter(f => f.selected && f.id !== 'fullName' && practiceOrder[practiceIndex][f.id]).length > 0 ? '12px' : '0' }}>{practiceOrder[practiceIndex].fullName}</h3>
+                    {quizFields.filter(f => f.selected && f.id !== 'fullName').map(field => {
+                      const fieldValue = practiceOrder[practiceIndex][field.id];
+                      if (!fieldValue) return null;
+                      
+                      let displayValue = fieldValue;
+                      if (field.id === 'birthday' && displayValue) {
+                        const date = new Date(displayValue + 'T00:00:00');
+                        displayValue = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                      }
+                      return (
+                        <p key={field.id} style={{ fontSize: '28px', margin: '8px 0 0 0', fontWeight: 600 }}>
+                          {displayValue}
+                        </p>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
 
+              {/* Image */}
               {practiceOrder[practiceIndex].isNoPhoto ? (
-                <div style={{ width: '100%', marginBottom: showAnswer ? '10px' : '20px' }}>
+                <div style={{ width: '100%', marginBottom: '20px' }}>
                   <div style={{ width: '100%', height: '300px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '15px', overflow: 'hidden' }}>
                     <img src={practiceOrder[practiceIndex].photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
@@ -2250,27 +2303,22 @@ function NameMemoryApp() {
                   )}
                 </div>
               ) : (
-                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', height: '400px', objectFit: 'cover', borderRadius: '20px', marginBottom: showAnswer ? '10px' : '20px' }} alt="Person" />
+                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', height: '400px', objectFit: 'cover', borderRadius: '20px', marginBottom: '20px' }} alt="Person" />
               )}
 
-              {showAnswer && (
-                <div style={{ background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)', padding: '15px', borderRadius: '15px', textAlign: 'center' }}>
-                  <h3 style={{ fontSize: '28px', marginBottom: '12px' }}>{practiceOrder[practiceIndex].fullName}</h3>
-                  {quizFields.filter(f => f.selected && f.id !== 'fullName').map(field => {
-                    const fieldValue = practiceOrder[practiceIndex][field.id];
-                    if (!fieldValue) return null;
-                    
-                    let displayValue = fieldValue;
-                    if (field.id === 'birthday' && displayValue) {
-                      const date = new Date(displayValue + 'T00:00:00');
-                      displayValue = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-                    }
-                    return (
-                      <p key={field.id} style={{ fontSize: '28px', marginTop: '8px', fontWeight: 600 }}>
-                        {displayValue}
-                      </p>
-                    );
-                  })}
+              {/* Buttons below image */}
+              {!showAnswer ? (
+                <button onClick={() => setShowAnswer(true)} style={{ ...styles.btn, width: '100%' }}>
+                  Show Name
+                </button>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <button onClick={() => recordAnswer(false)} style={{ ...styles.btn, background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)' }}>
+                    Wrong
+                  </button>
+                  <button onClick={() => recordAnswer(true)} style={{ ...styles.btn, background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' }}>
+                    Correct
+                  </button>
                 </div>
               )}
             </div>
@@ -2284,7 +2332,7 @@ function NameMemoryApp() {
               <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
             </div>
 
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               <div style={{ fontSize: '64px', marginBottom: '10px' }}>
                 {Math.round((quizResults.filter(r => r.correct).length / quizResults.length) * 100)}%
               </div>
@@ -2293,8 +2341,44 @@ function NameMemoryApp() {
               </p>
             </div>
 
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '30px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <button onClick={() => {
+                  const allPeople = quizResults.map(r => 
+                    people.find(p => p.id === r.personId)
+                  ).filter(p => p);
+                  setPracticeOrder(allPeople.sort(() => Math.random() - 0.5));
+                  setPracticeIndex(0);
+                  setShowAnswer(false);
+                  setQuizResults([]);
+                  setShowResults(false);
+                }} style={styles.btnSecondary}>
+                  Retake All
+                </button>
+                <button onClick={() => {
+                  const wrongPeople = quizResults.filter(r => !r.correct).map(r => 
+                    people.find(p => p.id === r.personId)
+                  ).filter(p => p);
+                  if (wrongPeople.length > 0) {
+                    setPracticeOrder(wrongPeople.sort(() => Math.random() - 0.5));
+                    setPracticeIndex(0);
+                    setShowAnswer(false);
+                    setQuizResults([]);
+                    setShowResults(false);
+                  } else {
+                    alert('Great job! You got everyone correct!');
+                  }
+                }} style={styles.btnSecondary} disabled={quizResults.filter(r => !r.correct).length === 0}>
+                  Retake Wrong
+                </button>
+              </div>
+              <button onClick={() => setView('list')} style={styles.btn}>
+                Finished
+              </button>
+            </div>
+
             <div style={{ marginBottom: '30px' }}>
-              <h3 style={{ fontSize: '20px', marginBottom: '15px', color: '#4ecdc4' }}>
+              <h3 style={{ fontSize: '20px', marginBottom: '8px', color: '#4ecdc4' }}>
                 Correct ({quizResults.filter(r => r.correct).length})
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2307,7 +2391,7 @@ function NameMemoryApp() {
             </div>
 
             <div style={{ marginBottom: '30px' }}>
-              <h3 style={{ fontSize: '20px', marginBottom: '15px', color: '#ff6b6b' }}>
+              <h3 style={{ fontSize: '20px', marginBottom: '8px', color: '#ff6b6b' }}>
                 Need Practice ({quizResults.filter(r => !r.correct).length})
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2317,40 +2401,6 @@ function NameMemoryApp() {
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button onClick={() => {
-                const allPeople = quizResults.map(r => 
-                  people.find(p => p.id === r.personId)
-                ).filter(p => p);
-                setPracticeOrder(allPeople.sort(() => Math.random() - 0.5));
-                setPracticeIndex(0);
-                setShowAnswer(false);
-                setQuizResults([]);
-                setShowResults(false);
-              }} style={styles.btnSecondary}>
-                Retake All
-              </button>
-              <button onClick={() => {
-                const wrongPeople = quizResults.filter(r => !r.correct).map(r => 
-                  people.find(p => p.id === r.personId)
-                ).filter(p => p);
-                if (wrongPeople.length > 0) {
-                  setPracticeOrder(wrongPeople.sort(() => Math.random() - 0.5));
-                  setPracticeIndex(0);
-                  setShowAnswer(false);
-                  setQuizResults([]);
-                  setShowResults(false);
-                } else {
-                  alert('Great job! You got everyone correct!');
-                }
-              }} style={styles.btnSecondary} disabled={quizResults.filter(r => !r.correct).length === 0}>
-                Retake Wrong Only
-              </button>
-              <button onClick={() => setView('list')} style={styles.btn}>
-                Finished
-              </button>
             </div>
           </div>
         )}
@@ -2420,7 +2470,7 @@ function NameMemoryApp() {
         {showAddFieldModal && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
             <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
-              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>{editingFieldId ? 'Edit Field' : 'Add Custom Field'}</h3>
+              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>{editingFieldId ? 'Edit Field' : 'Add Field'}</h3>
               <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
                 {editingFieldId ? 'Change the name of this field.' : 'Enter a name for your custom field (e.g., "Favorite Food", "Hometown", "Hobbies")'}
               </p>
@@ -2447,7 +2497,7 @@ function NameMemoryApp() {
         {showAddGroupModal && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
             <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
-              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>{editingGroupId ? 'Edit Group' : 'Add Custom Group'}</h3>
+              <h3 style={{ marginBottom: '15px', fontSize: '20px' }}>{editingGroupId ? 'Edit Group' : 'Add Group'}</h3>
               <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
                 {editingGroupId ? 'Change the name of this group.' : 'Enter a name for your custom group (e.g., "Family", "Networking Event", "Gym")'}
               </p>
@@ -2471,11 +2521,120 @@ function NameMemoryApp() {
             </div>
           </div>
         )}
+
+        {/* Add Menu Popup */}
+        {showAddMenu && (
+          <>
+            <div 
+              style={{ 
+                position: 'fixed', 
+                top: 0, 
+                left: 0, 
+                right: 0, 
+                bottom: 0, 
+                background: 'rgba(0,0,0,0.5)', 
+                zIndex: 998 
+              }}
+              onClick={() => setShowAddMenu(false)}
+            />
+            <div style={styles.addMenu}>
+              <button 
+                onClick={() => { 
+                  fileInputRef.current?.click(); 
+                  setShowAddMenu(false); 
+                }} 
+                style={styles.addMenuItem}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+                Upload Photo
+              </button>
+              <button 
+                onClick={() => { 
+                  setView('addNoPhoto'); 
+                  setShowAddMenu(false); 
+                }} 
+                style={styles.addMenuItem}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                Add People - No Photo
+              </button>
+              <button 
+                onClick={() => { 
+                  cameraInputRef.current?.click(); 
+                  setShowAddMenu(false); 
+                }} 
+                style={{ ...styles.addMenuItem, marginBottom: 0 }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                  <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                Take Photo
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Bottom Spacer */}
+        {view === 'list' && <div style={styles.bottomSpacer} />}
+
+        {/* Bottom Navigation */}
+        {view === 'list' && (
+          <div style={styles.bottomNav}>
+            <button 
+              onClick={() => setView('list')} 
+              style={{
+                ...styles.navButton,
+                ...(view === 'list' ? styles.navButtonActive : {})
+              }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+              <span>Home</span>
+            </button>
+            
+            <button 
+              onClick={() => setShowAddMenu(!showAddMenu)} 
+              style={{
+                ...styles.addButton,
+                transform: showAddMenu ? 'rotate(45deg)' : 'rotate(0deg)'
+              }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            
+            <button 
+              onClick={() => setView('settings')} 
+              style={{
+                ...styles.navButton,
+                ...(view === 'settings' ? styles.navButtonActive : {})
+              }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+              <span>Settings</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
     </>
   );
-}        
+}
+        
         // Render App
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<NameMemoryApp />);
