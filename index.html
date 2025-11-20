@@ -938,11 +938,15 @@ function NameMemoryApp() {
     a.href = url;
     
     // Generate filename based on export type
-    let filename = 'nameninja-';
+    let filename = 'NameNinja-';
     if (exportType === 'group') {
       filename += exportData.groupName.toLowerCase().replace(/\s+/g, '-') + '-';
     }
-    filename += new Date().toISOString().split('T')[0] + '.json';
+    const date = new Date();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const yy = String(date.getFullYear()).slice(-2);
+    filename += `${mm}-${dd}-${yy}.json`;
     
     a.download = filename;
     a.click();
@@ -2348,7 +2352,7 @@ function NameMemoryApp() {
               📱 Install App
             </button>
 
-            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '15px' }}>Import, Export, and Share Groups</h3>
+            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '15px' }}>Import, Export, Share Groups</h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
               <button 
@@ -3064,8 +3068,6 @@ function NameMemoryApp() {
         )}
       </div>
     </div>
-    </>
-  );
 }
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
