@@ -74,9 +74,6 @@
     </script>
     
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-
-
 function NameMemoryApp() {
   const [people, setPeople] = useState([]);
   const [view, setView] = useState('list');
@@ -100,6 +97,14 @@ function NameMemoryApp() {
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingFieldId, setEditingFieldId] = useState(null);
   const [showBackupModal, setShowBackupModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [exportType, setExportType] = useState('full');
+  const [exportGroupId, setExportGroupId] = useState('');
+  const [includeStats, setIncludeStats] = useState(true);
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importMode, setImportMode] = useState('merge');
   const [newNoPhotoPerson, setNewNoPhotoPerson] = useState({
     fullName: '',
     description: '',
@@ -877,46 +882,192 @@ function NameMemoryApp() {
   };
 
   const exportBackup = () => {
-    const backup = {
-      version: 1,
+    let exportData = {
+      version: 2,
       timestamp: new Date().toISOString(),
-      people: people,
-      customFields: customFields
+      exportType: exportType,
+      includeStats: includeStats
     };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+
+    // Filter people based on export type
+    let peopleToExport = people;
+    if (exportType === 'group' && exportGroupId) {
+      peopleToExport = people.filter(p => p.group === exportGroupId);
+      exportData.groupId = exportGroupId;
+      exportData.groupName = groups.find(g => g.id === exportGroupId)?.name || exportGroupId;
+    }
+
+    // Remove stats if not included
+    if (!includeStats) {
+      peopleToExport = peopleToExport.map(p => {
+        const { fieldStats, quizHistory, correctCount, totalAttempts, lastQuizDate, ...personWithoutStats } = p;
+        return personWithoutStats;
+      });
+    }
+
+    exportData.people = peopleToExport;
+    exportData.peopleCount = peopleToExport.length;
+
+    // Include groups and custom fields for full backup
+    if (exportType === 'full') {
+      exportData.groups = groups;
+      exportData.customFields = customFields;
+    }
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'name-memory-backup-' + new Date().toISOString().split('T')[0] + '.json';
+    
+    // Generate filename based on export type
+    let filename = 'nameninja-';
+    if (exportType === 'group') {
+      filename += exportData.groupName.toLowerCase().replace(/\s+/g, '-') + '-';
+    }
+    filename += new Date().toISOString().split('T')[0] + '.json';
+    
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-    alert('Backup exported successfully!');
+    
+    setShowExportModal(false);
+    alert(`Exported ${peopleToExport.length} people successfully!`);
   };
 
-  const handleImport = async (e) => {
+  const handleImportPreview = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
     try {
       const text = await file.text();
       const backup = JSON.parse(text);
-      if (!backup.people) throw new Error('Invalid backup');
-      if (confirm('Import ' + backup.people.length + ' people? This will replace your data.')) {
+      
+      if (!backup.people || !Array.isArray(backup.people)) {
+        throw new Error('Invalid backup file format');
+      }
+
+      // Analyze the import
+      const preview = {
+        file: file.name,
+        peopleCount: backup.people.length,
+        exportType: backup.exportType || 'unknown',
+        groupName: backup.groupName || 'Unknown',
+        includeStats: backup.includeStats !== false,
+        timestamp: backup.timestamp,
+        version: backup.version || 1,
+        groups: backup.groups || [],
+        customFields: backup.customFields || []
+      };
+
+      setImportFile(backup);
+      setImportPreview(preview);
+      setShowImportModal(true);
+    } catch (err) {
+      alert('Error reading file: ' + err.message);
+    }
+    
+    e.target.value = '';
+  };
+
+  const confirmImport = async () => {
+    if (!importFile) return;
+
+    try {
+      const backup = importFile;
+      
+      if (importMode === 'replace') {
+        // Replace mode: Delete all existing data
+        if (!confirm(`This will DELETE all ${people.length} existing people and replace with ${backup.people.length} imported people. Are you sure?`)) {
+          return;
+        }
+        
         for (const p of people) {
           localStorage.removeItem('person:' + p.id);
         }
+        
         for (const p of backup.people) {
           await savePerson(p);
         }
+        
         if (backup.customFields) {
           await saveCustomFields(backup.customFields);
         }
+        if (backup.groups) {
+          await saveGroups(backup.groups);
+        }
+        
         await loadPeople();
-        alert('Backup imported!');
+        setShowImportModal(false);
+        setImportFile(null);
+        setImportPreview(null);
+        alert(`Replaced all data with ${backup.people.length} imported people!`);
+        
+      } else {
+        // Merge mode: Add new people, keep existing
+        let addedCount = 0;
+        let skippedCount = 0;
+        
+        for (const importPerson of backup.people) {
+          // Check if person already exists (by ID or by name+group combo)
+          const existingById = people.find(p => p.id === importPerson.id);
+          const existingByName = people.find(p => 
+            p.fullName.toLowerCase() === importPerson.fullName.toLowerCase() && 
+            p.group === importPerson.group
+          );
+          
+          if (existingById || existingByName) {
+            skippedCount++;
+          } else {
+            // Generate new ID to avoid conflicts
+            const newPerson = {
+              ...importPerson,
+              id: Date.now() + Math.random()
+            };
+            await savePerson(newPerson);
+            addedCount++;
+          }
+        }
+        
+        // Merge groups if they don't exist
+        if (backup.groups) {
+          const newGroups = [...groups];
+          for (const importGroup of backup.groups) {
+            if (!newGroups.find(g => g.id === importGroup.id)) {
+              newGroups.push(importGroup);
+            }
+          }
+          if (newGroups.length > groups.length) {
+            await saveGroups(newGroups);
+          }
+        }
+        
+        // Merge custom fields if they don't exist
+        if (backup.customFields) {
+          const newFields = [...customFields];
+          for (const importField of backup.customFields) {
+            if (!newFields.find(f => f.id === importField.id)) {
+              newFields.push(importField);
+            }
+          }
+          if (newFields.length > customFields.length) {
+            await saveCustomFields(newFields);
+          }
+        }
+        
+        await loadPeople();
+        setShowImportModal(false);
+        setImportFile(null);
+        setImportPreview(null);
+        
+        let message = `Import complete!\n\nAdded: ${addedCount} new people`;
+        if (skippedCount > 0) {
+          message += `\nSkipped: ${skippedCount} duplicates`;
+        }
+        alert(message);
       }
     } catch (err) {
       alert('Error importing: ' + err.message);
     }
-    e.target.value = '';
   };
 
   const addCustomField = () => {
@@ -1559,9 +1710,14 @@ function NameMemoryApp() {
             </div>
 
             {crops.map(crop => (
-              <div key={crop.id} style={{ ...styles.cropItem, maxWidth: '600px', margin: '0 auto 15px' }}>
-                <img src={crop.dataUrl} style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '10px' }} alt="Crop" />
-                <div style={{ flex: 1, maxWidth: '350px', margin: '0 auto' }}>
+              <div key={crop.id} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', marginBottom: '15px', maxWidth: '600px', margin: '0 auto 15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                  <img src={crop.dataUrl} style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '10px' }} alt="Crop" />
+                  <button onClick={() => removeCrop(crop.id)} style={{ background: 'rgba(255,107,107,0.2)', border: 'none', color: '#ff6b6b', padding: '10px 15px', borderRadius: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    Remove
+                  </button>
+                </div>
+                <div>
                   {customFields.filter(f => f.enabled && f.id === 'fullName').map(field => (
                     <input
                       key={field.id}
@@ -1591,7 +1747,7 @@ function NameMemoryApp() {
                           type="date"
                           value={crop[field.id] || ''}
                           onChange={(e) => updateCropField(crop.id, field.id, e.target.value)}
-                          style={styles.input}
+                          style={{ ...styles.input, colorScheme: 'dark' }}
                         />
                       );
                     } else {
@@ -1621,9 +1777,6 @@ function NameMemoryApp() {
                     }
                   })}
                 </div>
-                <button onClick={() => removeCrop(crop.id)} style={{ background: 'rgba(255,107,107,0.2)', border: 'none', color: '#ff6b6b', padding: '10px', borderRadius: '10px', cursor: 'pointer', alignSelf: 'flex-start' }}>
-                  Remove
-                </button>
               </div>
             ))}
 
@@ -1781,7 +1934,7 @@ function NameMemoryApp() {
                       type="date"
                       value={editingPerson[field.id] || ''}
                       onChange={(e) => updateEditField(field.id, e.target.value)}
-                      style={styles.input}
+                      style={{ ...styles.input, colorScheme: 'dark' }}
                     />
                   );
                 } else {
@@ -2120,28 +2273,25 @@ function NameMemoryApp() {
                   alert('Install option not available. Try:\n\n• iOS Safari: Tap Share → Add to Home Screen\n• Android Chrome: Tap Menu → Install App\n• Desktop: Look for install icon in address bar');
                 }
               }}
-              style={{ ...styles.btn, width: '100%', marginBottom: '30px' }}
+              style={{ ...styles.btn, width: '100%', marginBottom: '15px' }}
             >
               📱 Install App
             </button>
 
-            <h3 style={{ fontSize: '20px', marginBottom: '8px', marginTop: '30px' }}>Data Storage</h3>
-            <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: '15px', fontSize: '14px' }}>
-              Manage your saved data. These actions cannot be undone.
-            </p>
+            <h3 style={{ fontSize: '20px', marginBottom: '15px', marginTop: '15px' }}>Data Management</h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
               <button 
-                onClick={exportBackup}
+                onClick={() => setShowExportModal(true)}
                 style={styles.btnSecondary}
               >
-                Export Backup
+                Export & Share
               </button>
               <button 
                 onClick={() => importInputRef.current?.click()}
                 style={styles.btnSecondary}
               >
-                Import Backup
+                Import Data
               </button>
             </div>
 
@@ -2295,12 +2445,18 @@ function NameMemoryApp() {
 
             <div>
               {/* Answer display area - shows ??? or name */}
-              <div style={{ background: showAnswer ? 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' : 'rgba(78,205,196,0.3)', padding: '20px', borderRadius: '15px', textAlign: 'center', marginBottom: '20px', minHeight: '140px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ background: showAnswer ? 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' : 'rgba(78,205,196,0.3)', padding: '10px', borderRadius: '15px', textAlign: 'center', marginBottom: '20px', height: '100px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 {!showAnswer ? (
-                  <h3 style={{ fontSize: '48px', margin: 0, fontWeight: 'bold' }}>???</h3>
+                  practiceOrder[practiceIndex].isNoPhoto && practiceOrder[practiceIndex].description ? (
+                    <p style={{ fontSize: '20px', margin: 0, fontWeight: 600, color: 'rgba(255,255,255,0.9)', padding: '0 10px' }}>
+                      {practiceOrder[practiceIndex].description}
+                    </p>
+                  ) : (
+                    <h3 style={{ fontSize: '48px', margin: 0, fontWeight: 'bold' }}>???</h3>
+                  )
                 ) : (
                   <>
-                    <h3 style={{ fontSize: '28px', margin: '0', marginBottom: quizFields.filter(f => f.selected && f.id !== 'fullName' && practiceOrder[practiceIndex][f.id]).length > 0 ? '12px' : '0' }}>{practiceOrder[practiceIndex].fullName}</h3>
+                    <h3 style={{ fontSize: '24px', margin: '0', marginBottom: quizFields.filter(f => f.selected && f.id !== 'fullName' && practiceOrder[practiceIndex][f.id]).length > 0 ? '4px' : '0' }}>{practiceOrder[practiceIndex].fullName}</h3>
                     {quizFields.filter(f => f.selected && f.id !== 'fullName').map(field => {
                       const fieldValue = practiceOrder[practiceIndex][field.id];
                       if (!fieldValue) return null;
@@ -2311,7 +2467,7 @@ function NameMemoryApp() {
                         displayValue = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
                       }
                       return (
-                        <p key={field.id} style={{ fontSize: '28px', margin: '8px 0 0 0', fontWeight: 600 }}>
+                        <p key={field.id} style={{ fontSize: '20px', margin: '4px 0 0 0', fontWeight: 600 }}>
                           {displayValue}
                         </p>
                       );
@@ -2322,20 +2478,11 @@ function NameMemoryApp() {
 
               {/* Image */}
               {practiceOrder[practiceIndex].isNoPhoto ? (
-                <div style={{ width: '100%', marginBottom: '20px' }}>
-                  <div style={{ width: '100%', height: '300px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '15px', overflow: 'hidden' }}>
-                    <img src={practiceOrder[practiceIndex].photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                  {practiceOrder[practiceIndex].description && (
-                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '20px', borderRadius: '15px', textAlign: 'center' }}>
-                      <p style={{ fontSize: '18px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
-                        {practiceOrder[practiceIndex].description}
-                      </p>
-                    </div>
-                  )}
+                <div style={{ width: '100%', maxWidth: '300px', height: '300px', margin: '0 auto 20px auto', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  <img src={practiceOrder[practiceIndex].photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
               ) : (
-                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', height: '400px', objectFit: 'cover', borderRadius: '20px', marginBottom: '20px' }} alt="Person" />
+                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', maxWidth: '300px', height: '300px', objectFit: 'cover', borderRadius: '20px', marginBottom: '20px', display: 'block', margin: '0 auto 20px auto' }} alt="Person" />
               )}
 
               {/* Buttons below image */}
@@ -2439,7 +2586,7 @@ function NameMemoryApp() {
 
         <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
-        <input ref={importInputRef} type="file" accept=".json" onChange={handleImport} style={{ display: 'none' }} />
+        <input ref={importInputRef} type="file" accept=".json" onChange={handleImportPreview} style={{ display: 'none' }} />
 
         {showBackupModal && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -2554,6 +2701,185 @@ function NameMemoryApp() {
           </div>
         )}
 
+        {/* Export Modal */}
+        {showExportModal && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ marginBottom: '20px', fontSize: '24px' }}>Export Options</h3>
+              
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', padding: '12px', background: exportType === 'full' ? 'rgba(78,205,196,0.2)' : 'rgba(255,255,255,0.05)', borderRadius: '10px', marginBottom: '10px', cursor: 'pointer', border: exportType === 'full' ? '2px solid rgba(78,205,196,0.5)' : '2px solid transparent' }}>
+                  <input 
+                    type="radio" 
+                    checked={exportType === 'full'}
+                    onChange={() => setExportType('full')}
+                    style={{ marginRight: '10px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Full Backup</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>Everything (all people, groups, settings)</div>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', padding: '12px', background: exportType === 'group' ? 'rgba(78,205,196,0.2)' : 'rgba(255,255,255,0.05)', borderRadius: '10px', cursor: 'pointer', border: exportType === 'group' ? '2px solid rgba(78,205,196,0.5)' : '2px solid transparent' }}>
+                  <input 
+                    type="radio" 
+                    checked={exportType === 'group'}
+                    onChange={() => setExportType('group')}
+                    style={{ marginRight: '10px' }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>Specific Group</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>Export one group only</div>
+                  </div>
+                </label>
+
+                {exportType === 'group' && (
+                  <select 
+                    value={exportGroupId}
+                    onChange={(e) => setExportGroupId(e.target.value)}
+                    style={{ ...styles.input, marginTop: '10px', marginLeft: '34px', width: 'calc(100% - 34px)' }}
+                  >
+                    <option value="" style={{ color: '#000' }}>Select group...</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id} style={{ color: '#000' }}>
+                        {g.name} ({people.filter(p => p.group === g.id).length} people)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', marginBottom: '20px', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={includeStats}
+                  onChange={(e) => setIncludeStats(e.target.checked)}
+                  style={{ marginRight: '10px' }}
+                />
+                <div>
+                  <div style={{ fontWeight: 600 }}>Include Quiz Stats</div>
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>Export with progress & scores</div>
+                </div>
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <button 
+                  onClick={() => {
+                    setShowExportModal(false);
+                    setExportType('full');
+                    setExportGroupId('');
+                    setIncludeStats(true);
+                  }} 
+                  style={{ padding: '12px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={exportBackup} 
+                  disabled={exportType === 'group' && !exportGroupId}
+                  style={{ 
+                    padding: '12px', 
+                    background: (exportType === 'group' && !exportGroupId) ? 'rgba(78,205,196,0.3)' : 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)', 
+                    border: 'none', 
+                    borderRadius: '10px', 
+                    color: 'white', 
+                    cursor: (exportType === 'group' && !exportGroupId) ? 'not-allowed' : 'pointer', 
+                    fontSize: '16px', 
+                    fontWeight: 600,
+                    opacity: (exportType === 'group' && !exportGroupId) ? 0.5 : 1
+                  }}
+                >
+                  Export
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import Modal */}
+        {showImportModal && importPreview && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '90%', border: '2px solid rgba(255,255,255,0.1)' }}>
+              <h3 style={{ marginBottom: '20px', fontSize: '24px' }}>Import Data</h3>
+              
+              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '10px', marginBottom: '20px' }}>
+                <div style={{ fontSize: '14px', marginBottom: '8px' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>File:</span> {importPreview.file}
+                </div>
+                <div style={{ fontSize: '14px', marginBottom: '8px' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Contains:</span> {importPreview.peopleCount} people
+                </div>
+                {importPreview.exportType === 'group' && (
+                  <div style={{ fontSize: '14px', marginBottom: '8px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>From group:</span> {importPreview.groupName}
+                  </div>
+                )}
+                <div style={{ fontSize: '14px' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>Stats included:</span> {importPreview.includeStats ? 'Yes' : 'No'}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', padding: '12px', background: importMode === 'merge' ? 'rgba(78,205,196,0.2)' : 'rgba(255,255,255,0.05)', borderRadius: '10px', marginBottom: '10px', cursor: 'pointer', border: importMode === 'merge' ? '2px solid rgba(78,205,196,0.5)' : '2px solid transparent' }}>
+                  <input 
+                    type="radio" 
+                    checked={importMode === 'merge'}
+                    onChange={() => setImportMode('merge')}
+                    style={{ marginRight: '10px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#4ecdc4' }}>Merge (Recommended)</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>Add new people, keep existing</div>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', padding: '12px', background: importMode === 'replace' ? 'rgba(255,107,107,0.2)' : 'rgba(255,255,255,0.05)', borderRadius: '10px', cursor: 'pointer', border: importMode === 'replace' ? '2px solid rgba(255,107,107,0.5)' : '2px solid transparent' }}>
+                  <input 
+                    type="radio" 
+                    checked={importMode === 'replace'}
+                    onChange={() => setImportMode('replace')}
+                    style={{ marginRight: '10px' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#ff6b6b' }}>Replace All</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>Delete existing, import only</div>
+                  </div>
+                </label>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <button 
+                  onClick={() => {
+                    setShowImportModal(false);
+                    setImportFile(null);
+                    setImportPreview(null);
+                    setImportMode('merge');
+                  }} 
+                  style={{ padding: '12px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '10px', color: 'white', cursor: 'pointer', fontSize: '16px' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={confirmImport}
+                  style={{ 
+                    padding: '12px', 
+                    background: importMode === 'replace' ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)' : 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)', 
+                    border: 'none', 
+                    borderRadius: '10px', 
+                    color: 'white', 
+                    cursor: 'pointer', 
+                    fontSize: '16px', 
+                    fontWeight: 600
+                  }}
+                >
+                  Import
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Add Menu Popup */}
         {showAddMenu && (
           <>
@@ -2582,7 +2908,7 @@ function NameMemoryApp() {
                   <circle cx="8.5" cy="8.5" r="1.5"></circle>
                   <polyline points="21 15 16 10 5 21"></polyline>
                 </svg>
-                Upload Photo
+                Upload Photo(s)
               </button>
               <button 
                 onClick={() => { 
@@ -2595,7 +2921,10 @@ function NameMemoryApp() {
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                   <circle cx="12" cy="7" r="4"></circle>
                 </svg>
-                Add People - No Photo
+                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                  <span>Add People:</span>
+                  <span>No Photo</span>
+                </div>
               </button>
               <button 
                 onClick={() => { 
@@ -2665,7 +2994,6 @@ function NameMemoryApp() {
     </div>
     </>
   );
-}
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<NameMemoryApp />);
