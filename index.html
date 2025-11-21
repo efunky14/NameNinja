@@ -1265,7 +1265,10 @@ function NameMemoryApp() {
     personCard: {
       background: 'rgba(255,255,255,0.05)',
       borderRadius: '15px',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%'
     },
     canvas: {
       maxWidth: '100%',
@@ -1650,8 +1653,8 @@ function NameMemoryApp() {
                             return (
                               <div key={person.id} style={styles.personCard}>
                                 <img src={person.photo} style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} alt={person.fullName} />
-                                <div style={{ padding: '12px' }}>
-                                  <div style={{ fontWeight: 600, marginBottom: '8px' }}>{person.fullName}</div>
+                                <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+                                  <div style={{ fontWeight: 600, marginBottom: '8px', flexGrow: 1 }}>{person.fullName}</div>
                                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                     {percentage !== null && (
                                       <div style={{ flex: 1, background: 'rgba(255,255,255,0.1)', color: percentage >= 80 ? '#4ecdc4' : percentage >= 50 ? '#ffd700' : '#ff6b6b', padding: '6px', borderRadius: '8px', textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>
