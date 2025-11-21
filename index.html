@@ -1649,7 +1649,7 @@ function NameMemoryApp() {
                             
                             return (
                               <div key={person.id} style={styles.personCard}>
-                                <img src={person.photo} style={{ width: '100%', height: '150px', objectFit: 'cover' }} alt={person.fullName} />
+                                <img src={person.photo} style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} alt={person.fullName} />
                                 <div style={{ padding: '12px' }}>
                                   <div style={{ fontWeight: 600, marginBottom: '8px' }}>{person.fullName}</div>
                                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -1762,9 +1762,16 @@ function NameMemoryApp() {
                       return (
                         <div key={field.id} style={{ position: 'relative' }}>
                           <input
-                            type="text"
+                            type="tel"
+                            inputMode="numeric"
                             placeholder="mm/dd/yyyy"
                             defaultValue={crop[field.id] ? new Date(crop[field.id] + 'T00:00:00').toLocaleDateString('en-US', {month: '2-digit', day: '2-digit', year: 'numeric'}) : ''}
+                            onChange={(e) => {
+                              let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
+                              if (val.length >= 2) val = val.slice(0,2) + '/' + val.slice(2);
+                              if (val.length >= 5) val = val.slice(0,5) + '/' + val.slice(5,9);
+                              e.target.value = val;
+                            }}
                             onBlur={(e) => {
                               const val = e.target.value;
                               const match = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -1974,9 +1981,16 @@ function NameMemoryApp() {
                   return (
                     <div key={field.id} style={{ position: 'relative' }}>
                       <input
-                        type="text"
+                        type="tel"
+                        inputMode="numeric"
                         placeholder="mm/dd/yyyy"
                         defaultValue={editingPerson[field.id] ? new Date(editingPerson[field.id] + 'T00:00:00').toLocaleDateString('en-US', {month: '2-digit', day: '2-digit', year: 'numeric'}) : ''}
+                        onChange={(e) => {
+                          let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
+                          if (val.length >= 2) val = val.slice(0,2) + '/' + val.slice(2);
+                          if (val.length >= 5) val = val.slice(0,5) + '/' + val.slice(5,9);
+                          e.target.value = val;
+                        }}
                         onBlur={(e) => {
                           const val = e.target.value;
                           const match = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -2525,14 +2539,53 @@ function NameMemoryApp() {
 
         {view === 'practice' && practiceOrder.length > 0 && !showResults && (
           <div style={{ ...styles.card, maxWidth: '550px', margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0 }}>Quiz Session ({practiceIndex + 1}/{practiceOrder.length})</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h2 style={{ margin: 0 }}>Quiz Session</h2>
               <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>
             </div>
 
+            {/* Progress Bar */}
+            <div style={{ position: 'relative', width: '100%', height: '32px', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', marginBottom: '20px', overflow: 'hidden' }}>
+              <div style={{ 
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                height: '100%',
+                width: `${((practiceIndex + 1) / practiceOrder.length) * 100}%`,
+                background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
+                transition: 'width 0.3s ease',
+                borderRadius: '10px'
+              }} />
+              <div style={{ 
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'white',
+                zIndex: 1
+              }}>
+                {practiceIndex + 1}/{practiceOrder.length}
+              </div>
+            </div>
+
             <div>
+              {/* Image */}
+              {practiceOrder[practiceIndex].isNoPhoto ? (
+                <div style={{ width: '100%', maxWidth: '300px', height: '300px', margin: '0 auto 20px auto', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  <img src={practiceOrder[practiceIndex].photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              ) : (
+                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', maxWidth: '300px', height: '300px', objectFit: 'cover', borderRadius: '20px', marginBottom: '20px', display: 'block', margin: '0 auto 20px auto' }} alt="Person" />
+              )}
+
               {/* Answer display area - shows ??? or name */}
-              <div style={{ background: showAnswer ? 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)' : 'rgba(78,205,196,0.3)', padding: '10px', borderRadius: '15px', textAlign: 'center', marginBottom: '20px', height: '100px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ background: 'rgba(255,255,255,0.1)', padding: '10px', borderRadius: '15px', textAlign: 'center', marginBottom: '20px', height: '100px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 {!showAnswer ? (
                   practiceOrder[practiceIndex].isNoPhoto && practiceOrder[practiceIndex].description ? (
                     <p style={{ fontSize: '20px', margin: 0, fontWeight: 600, color: 'rgba(255,255,255,0.9)', padding: '0 10px' }}>
@@ -2563,16 +2616,7 @@ function NameMemoryApp() {
                 )}
               </div>
 
-              {/* Image */}
-              {practiceOrder[practiceIndex].isNoPhoto ? (
-                <div style={{ width: '100%', maxWidth: '300px', height: '300px', margin: '0 auto 20px auto', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  <img src={practiceOrder[practiceIndex].photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              ) : (
-                <img src={practiceOrder[practiceIndex].photo} style={{ width: '100%', maxWidth: '300px', height: '300px', objectFit: 'cover', borderRadius: '20px', marginBottom: '20px', display: 'block', margin: '0 auto 20px auto' }} alt="Person" />
-              )}
-
-              {/* Buttons below image */}
+              {/* Buttons below answer box */}
               {!showAnswer ? (
                 <button onClick={() => setShowAnswer(true)} style={{ ...styles.btn, width: '100%' }}>
                   Show Name
